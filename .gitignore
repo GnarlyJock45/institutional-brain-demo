@@ -1,0 +1,3 @@
+# Local-only artifacts — don't ship with the published demo
+v*.png
+.playwright-mcp/

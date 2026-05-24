@@ -1,0 +1,1988 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Institutional Brain — Interactive Demo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        brand: { 500: '#14B8A6', 600: '#0D9488', 300: '#99E6E0', 50: '#ECFDF8' },
+        ink:   { 900: '#0F172A', 700: '#334155', 500: '#64748B', 400: '#94A3B8', 200: '#E2E8F0', 100: '#EEF2F6', 50: '#F7F9FA' },
+      },
+      fontFamily: {
+        sans: ['Inter', 'system-ui', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+      },
+      boxShadow: {
+        card:  '0 1px 2px rgba(15,23,42,.04), 0 1px 1px rgba(15,23,42,.03)',
+        lift:  '0 4px 12px rgba(15,23,42,.08), 0 2px 4px rgba(15,23,42,.04)',
+        panel: '0 12px 32px rgba(15,23,42,.10), 0 4px 8px rgba(15,23,42,.05)',
+      },
+    },
+  },
+};
+</script>
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<style>
+  html, body { height: 100%; background: #F7F9FA; }
+  body { font-family: 'Inter', system-ui, sans-serif; color: #0F172A; -webkit-font-smoothing: antialiased; }
+  [x-cloak] { display: none !important; }
+
+  /* Graph canvas */
+  #graph-svg { width: 100%; height: 100%; display: block; cursor: grab; }
+  #graph-svg:active { cursor: grabbing; }
+  .node-circle { cursor: pointer; transition: r 150ms ease-out, stroke-width 150ms ease-out, filter 150ms ease-out; }
+  .node-label  { pointer-events: none; font-size: 11px; font-weight: 600; fill: #fff; text-anchor: middle; dominant-baseline: central; user-select: none; }
+  .edge        { fill: none; transition: stroke-opacity 180ms ease-out, stroke-width 180ms ease-out; }
+  .cluster-label-bg { fill: #fff; stroke: #E2E8F0; stroke-width: 1; pointer-events: none; }
+  .cluster-label {
+    pointer-events: none; user-select: none;
+    font-size: 10.5px; font-weight: 600; fill: #334155;
+    letter-spacing: 0.01em;
+  }
+
+  /* Tooltip */
+  .gtooltip {
+    position: absolute; pointer-events: none; z-index: 40;
+    background: rgba(15,23,42,.95); color: #fff; padding: 6px 10px;
+    border-radius: 8px; font-size: 12px; line-height: 1.3;
+    box-shadow: 0 8px 24px rgba(15,23,42,.20);
+    opacity: 0; transform: translate(-50%, -120%) scale(.96);
+    transition: opacity 120ms ease-out, transform 120ms ease-out;
+    white-space: nowrap;
+  }
+  .gtooltip.show { opacity: 1; transform: translate(-50%, -130%) scale(1); }
+  .gtooltip .imp { color: #99E6E0; font-weight: 500; margin-left: 6px; }
+
+  /* Cross-fade between views */
+  .view-fade-enter { animation: viewIn 200ms ease-out both; }
+  @keyframes viewIn { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+
+  /* Detail panel slide-in */
+  .slide-in-right { animation: slideR 250ms cubic-bezier(.2,.7,.2,1) both; }
+  @keyframes slideR { from { transform: translateX(16px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+  /* Modal */
+  .modal-back { animation: fadeIn 180ms ease-out both; backdrop-filter: blur(8px); }
+  .modal-card { animation: modalIn 220ms cubic-bezier(.2,.7,.2,1) both; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes modalIn { from { opacity: 0; transform: translateY(8px) scale(.985); } to { opacity: 1; transform: none; } }
+
+  /* Card subtle hover lift */
+  .mb-card { transition: transform 150ms ease-out, box-shadow 150ms ease-out, border-color 150ms ease-out; }
+  .mb-card:hover { transform: translateY(-3px); box-shadow: 0 8px 20px rgba(15,23,42,.07); }
+
+  /* Brief teal pulse for nav-into-bank highlight */
+  @keyframes pulseTeal {
+    0%   { box-shadow: 0 0 0 0 rgba(20,184,166,.55); border-color: #14B8A6; }
+    100% { box-shadow: 0 0 0 14px rgba(20,184,166,0); border-color: #E2E8F0; }
+  }
+  .pulse-teal { animation: pulseTeal 700ms ease-out 0s 2; border-color: #14B8A6 !important; }
+
+  /* Chat bubbles */
+  .bubble-user      { background: #14B8A6; color: #fff; }
+  .bubble-assistant { background: #fff; color: #0F172A; border: 1px solid #E2E8F0; }
+  .chat-stream-cursor::after {
+    content: '▍'; color: #14B8A6; margin-left: 1px;
+    animation: blink 1s steps(1) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* Citation popover */
+  .cite-pop {
+    animation: popIn 180ms ease-out both;
+    transform-origin: top left;
+  }
+  @keyframes popIn { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: scale(1); } }
+
+  /* Sector switch overlay */
+  .sector-overlay {
+    position: absolute; inset: 0; z-index: 60;
+    background: rgba(247,249,250,.86); backdrop-filter: blur(2px);
+    display: flex; align-items: center; justify-content: center;
+    color: #334155; font-weight: 500; font-size: 13px;
+    transition: opacity 200ms ease-out;
+  }
+  .sector-dimmed { transition: opacity 200ms ease-out, filter 200ms ease-out; }
+
+  /* Filter card translate animation (Memory Bank) */
+  .grid-card-enter { animation: cardIn 200ms ease-out both; }
+  @keyframes cardIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  /* Suggestion chip pulse */
+  @keyframes chipPulse {
+    0%   { box-shadow: 0 0 0 0 rgba(20,184,166,.4); }
+    100% { box-shadow: 0 0 0 10px rgba(20,184,166,0); }
+  }
+  .chip-pulse { animation: chipPulse 600ms ease-out; }
+
+  /* Scrollbar */
+  .scroll-pretty::-webkit-scrollbar { width: 10px; height: 10px; }
+  .scroll-pretty::-webkit-scrollbar-thumb { background: #E2E8F0; border-radius: 8px; }
+  .scroll-pretty::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
+
+  /* Sidebar item hover */
+  .nav-item:hover { background: #EEF2F6; }
+  .nav-item.active { background: #ECFDF8; }
+  .nav-item.active::before {
+    content: ''; position: absolute; left: 0; top: 6px; bottom: 6px; width: 3px;
+    background: #14B8A6; border-radius: 0 2px 2px 0;
+  }
+</style>
+</head>
+
+<body x-data="ibApp()" x-init="init()" x-cloak class="h-full overflow-hidden">
+
+  <!-- =================== TOP BAR =================== -->
+  <header class="h-16 border-b border-ink-200 bg-white flex items-center justify-between px-5 relative z-30">
+    <!-- Brand + counter -->
+    <div class="flex items-center gap-3">
+      <div class="flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-brand-500 inline-block"></span>
+        <span class="font-semibold text-[15px] tracking-tight text-ink-900">Institutional Brain</span>
+      </div>
+      <div class="hidden sm:block text-ink-500 text-xs ml-1 font-mono" x-text="contextLine"></div>
+    </div>
+
+    <!-- Sector switcher + about -->
+    <div class="flex items-center gap-4">
+      <div class="hidden md:flex items-center gap-1 p-1 rounded-full border border-ink-200 bg-ink-50"
+           :title="'Same architecture, different domain. Click to swap the underlying dataset.'">
+        <button @click="switchSector('healthcare')"
+                :class="sector==='healthcare' ? 'bg-brand-500 text-white shadow-sm' : 'text-ink-700 hover:text-ink-900'"
+                class="text-[12px] font-medium px-3 py-1 rounded-full transition-colors">
+          Healthcare
+        </button>
+        <button @click="switchSector('logistics')"
+                :class="sector==='logistics' ? 'bg-brand-500 text-white shadow-sm' : 'text-ink-700 hover:text-ink-900'"
+                class="text-[12px] font-medium px-3 py-1 rounded-full transition-colors">
+          Logistics
+        </button>
+      </div>
+      <button @click="aboutOpen=true" class="text-ink-500 hover:text-ink-900 p-2 rounded-md hover:bg-ink-50" title="About this demo">
+        <i data-lucide="info" class="w-4 h-4"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- =================== MAIN SHELL =================== -->
+  <div class="flex" style="height: calc(100% - 4rem);">
+
+    <!-- =================== SIDEBAR =================== -->
+    <aside class="w-60 shrink-0 border-r border-ink-200 bg-white flex flex-col overflow-y-auto scroll-pretty">
+      <nav class="px-3 pt-4 pb-2">
+        <template x-for="item in navItems" :key="item.id">
+          <button @click="switchView(item.id)"
+                  :class="view===item.id ? 'active text-ink-900' : 'text-ink-700'"
+                  class="nav-item w-full relative flex items-center gap-3 px-3 py-2 rounded-md text-[13px] font-medium mb-1">
+            <i :data-lucide="item.icon" class="w-4 h-4"></i>
+            <span x-text="item.label"></span>
+          </button>
+        </template>
+      </nav>
+
+      <div class="px-5 mt-2 mb-2 text-[11px] uppercase tracking-wider text-ink-400 font-semibold">Categories</div>
+      <div class="px-3 pb-5 space-y-0.5">
+        <button @click="selectedCategory=null"
+                :class="selectedCategory===null ? 'bg-ink-100' : 'hover:bg-ink-50'"
+                class="w-full flex items-center justify-between px-3 py-1.5 rounded-md text-[12.5px] text-ink-700">
+          <span class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-ink-400"></span>
+            All
+          </span>
+          <span class="text-ink-400 tabular-nums" x-text="data.nodes.length"></span>
+        </button>
+        <template x-for="cat in data.categories" :key="cat.id">
+          <button @click="selectedCategory = (selectedCategory===cat.id ? null : cat.id)"
+                  :class="selectedCategory===cat.id ? 'bg-ink-100' : 'hover:bg-ink-50'"
+                  class="w-full flex items-center justify-between px-3 py-1.5 rounded-md text-[12.5px] text-ink-700">
+            <span class="flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full" :style="`background:${cat.color}`"></span>
+              <span x-text="cat.name"></span>
+            </span>
+            <span class="text-ink-400 tabular-nums" x-text="cat.count"></span>
+          </button>
+        </template>
+      </div>
+
+      <div class="mt-auto px-5 py-3 border-t border-ink-200 text-[11px] text-ink-400">
+        Static demo · v1.0
+      </div>
+    </aside>
+
+    <!-- =================== MAIN CANVAS =================== -->
+    <main class="flex-1 relative overflow-hidden" :class="sectorSwitching ? 'sector-dimmed' : ''"
+          :style="sectorSwitching ? 'opacity:.2; filter:blur(1px);' : ''">
+
+      <!-- ============ VIEW: GRAPH ============ -->
+      <section x-show="view==='graph'" x-transition.opacity.duration.200ms class="absolute inset-0">
+        <!-- Search field (centered top) -->
+        <div class="absolute top-4 left-1/2 -translate-x-1/2 z-20">
+          <div class="relative">
+            <i data-lucide="search" class="w-4 h-4 text-ink-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
+            <input x-model="searchQuery" type="text" placeholder="Search memories…"
+                   class="w-[280px] pl-9 pr-3 py-2 text-[13px] bg-white border border-ink-200 rounded-full shadow-card focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/15">
+          </div>
+        </div>
+
+        <!-- Floating stats card -->
+        <div class="absolute top-4 right-4 z-20 bg-white/80 backdrop-blur-md border border-ink-200 rounded-xl px-4 py-2.5 shadow-card">
+          <div class="text-[11px] uppercase tracking-wider text-ink-400 font-semibold mb-1">Memory Layer</div>
+          <div class="text-[12.5px] text-ink-700 font-medium font-mono tabular-nums">
+            <span x-text="data.meta.nodeCount"></span> nodes ·
+            <span x-text="data.meta.connectionCount"></span> connections ·
+            <span x-text="data.categories.length"></span> categories ·
+            <span x-text="data.meta.avgImportance + '%'"></span> avg
+          </div>
+        </div>
+
+        <!-- The graph canvas -->
+        <div class="absolute inset-0" @click.self="clearSelection()">
+          <svg id="graph-svg" @click.self="clearSelection()"></svg>
+          <div id="graph-tooltip" class="gtooltip"></div>
+        </div>
+
+        <!-- Node detail panel -->
+        <template x-if="selectedNode">
+          <div class="slide-in-right absolute top-0 right-0 h-full w-[360px] bg-white border-l border-ink-200 shadow-panel z-30 flex flex-col">
+            <div class="flex items-start justify-between px-5 pt-5 pb-3 border-b border-ink-100">
+              <div>
+                <div class="text-[10px] uppercase tracking-wider font-semibold mb-1 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border"
+                     :style="`color:${catColor(selectedNode.category)}; border-color:${catColor(selectedNode.category)}55; background:${catColor(selectedNode.category)}11`">
+                  <span class="w-1.5 h-1.5 rounded-full" :style="`background:${catColor(selectedNode.category)}`"></span>
+                  <span x-text="catName(selectedNode.category)"></span>
+                </div>
+                <h3 class="text-[15px] font-semibold text-ink-900 leading-snug" x-text="selectedNode.name"></h3>
+              </div>
+              <button @click="clearSelection()" class="text-ink-400 hover:text-ink-700 p-1 rounded-md">
+                <i data-lucide="x" class="w-4 h-4"></i>
+              </button>
+            </div>
+
+            <div class="px-5 py-4 flex-1 overflow-y-auto scroll-pretty space-y-4">
+              <div>
+                <div class="flex items-center justify-between text-[11px] text-ink-500 mb-1.5">
+                  <span class="uppercase tracking-wider font-semibold">Importance</span>
+                  <span class="font-mono tabular-nums text-ink-700" x-text="selectedNode.importance + '/100'"></span>
+                </div>
+                <div class="h-1.5 bg-ink-100 rounded-full overflow-hidden">
+                  <div class="h-full bg-brand-500" :style="`width:${selectedNode.importance}%`"></div>
+                </div>
+              </div>
+
+              <p class="text-[13.5px] text-ink-700 leading-relaxed" x-text="selectedNode.description"></p>
+
+              <div class="grid grid-cols-2 gap-3 text-[12px]">
+                <div class="bg-ink-50 rounded-lg px-3 py-2">
+                  <div class="text-ink-400 uppercase tracking-wider text-[10px] font-semibold mb-0.5">Times Accessed</div>
+                  <div class="text-ink-900 font-mono tabular-nums font-semibold" x-text="selectedNode.timesAccessed"></div>
+                </div>
+                <div class="bg-ink-50 rounded-lg px-3 py-2">
+                  <div class="text-ink-400 uppercase tracking-wider text-[10px] font-semibold mb-0.5">Last Activity</div>
+                  <div class="text-ink-900 font-mono tabular-nums font-semibold" x-text="selectedNode.ageStr"></div>
+                </div>
+              </div>
+
+              <div>
+                <div class="text-[11px] uppercase tracking-wider font-semibold text-ink-500 mb-2">Linked to</div>
+                <div class="flex flex-wrap gap-1.5">
+                  <template x-for="nb in neighbors(selectedNode.id)" :key="nb.id">
+                    <button @click="selectNode(nb.id)"
+                            class="text-[12px] px-2.5 py-1 rounded-full border border-ink-200 hover:border-brand-500 hover:bg-brand-50 text-ink-700 transition-colors">
+                      <span class="w-1.5 h-1.5 rounded-full inline-block mr-1.5 align-middle" :style="`background:${catColor(nb.category)}`"></span>
+                      <span x-text="nb.name"></span>
+                    </button>
+                  </template>
+                  <span x-show="neighbors(selectedNode.id).length===0" class="text-[12px] text-ink-400 italic">No connections</span>
+                </div>
+              </div>
+
+              <div x-show="selectedNode.tags && selectedNode.tags.length">
+                <div class="text-[11px] uppercase tracking-wider font-semibold text-ink-500 mb-2">Tags</div>
+                <div class="flex flex-wrap gap-1.5">
+                  <template x-for="t in selectedNode.tags" :key="t">
+                    <span class="text-[11px] bg-ink-100 text-ink-700 px-2 py-0.5 rounded-md font-mono" x-text="t"></span>
+                  </template>
+                </div>
+              </div>
+            </div>
+
+            <div class="px-5 py-3 border-t border-ink-100">
+              <button @click="openInBank(selectedNode.id)"
+                      class="w-full text-[12.5px] text-brand-600 hover:text-brand-500 font-medium flex items-center justify-center gap-1.5 py-1">
+                View in Memory Bank
+                <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i>
+              </button>
+            </div>
+          </div>
+        </template>
+      </section>
+
+      <!-- ============ VIEW: BANK ============ -->
+      <section x-show="view==='bank'" x-transition.opacity.duration.200ms class="absolute inset-0 overflow-y-auto scroll-pretty">
+        <div class="max-w-[1280px] mx-auto px-6 py-6">
+
+          <!-- Stats row -->
+          <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-5">
+            <template x-for="s in bankStats" :key="s.label">
+              <div class="bg-white border border-ink-200 rounded-xl px-4 py-3 shadow-card relative overflow-hidden">
+                <div class="absolute bottom-0 left-0 right-0 h-[2px] bg-brand-500/70"></div>
+                <div class="flex items-center justify-between mb-1.5 text-ink-400">
+                  <span class="text-[10.5px] uppercase tracking-wider font-semibold" x-text="s.label"></span>
+                  <i :data-lucide="s.icon" class="w-3.5 h-3.5"></i>
+                </div>
+                <div class="text-[22px] font-semibold text-ink-900 tabular-nums" x-text="s.value"></div>
+              </div>
+            </template>
+          </div>
+
+          <!-- Filters row -->
+          <div class="bg-white border border-ink-200 rounded-xl px-4 py-3 mb-5 flex flex-wrap items-center gap-3 shadow-card">
+            <div class="flex flex-wrap gap-1.5 flex-1 min-w-[260px]">
+              <button @click="bankFilterCats = []"
+                      :class="bankFilterCats.length===0 ? 'bg-ink-900 text-white border-ink-900' : 'bg-white text-ink-700 border-ink-200 hover:border-ink-400'"
+                      class="text-[11.5px] px-2.5 py-1 rounded-full border transition-colors">
+                All
+              </button>
+              <template x-for="cat in data.categories" :key="cat.id">
+                <button @click="toggleBankCat(cat.id)"
+                        :class="bankFilterCats.includes(cat.id) ? 'text-white border-transparent' : 'bg-white text-ink-700 border-ink-200 hover:border-ink-400'"
+                        :style="bankFilterCats.includes(cat.id) ? `background:${cat.color}` : ''"
+                        class="text-[11.5px] px-2.5 py-1 rounded-full border transition-colors flex items-center gap-1.5">
+                  <span class="w-1.5 h-1.5 rounded-full" :style="`background:${cat.color}`" x-show="!bankFilterCats.includes(cat.id)"></span>
+                  <span x-text="cat.name"></span>
+                </button>
+              </template>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="relative">
+                <i data-lucide="search" class="w-3.5 h-3.5 text-ink-400 absolute left-2.5 top-1/2 -translate-y-1/2"></i>
+                <input x-model="bankQuery" type="text" placeholder="Search…"
+                       class="pl-8 pr-2.5 py-1.5 text-[12.5px] bg-ink-50 border border-ink-200 rounded-md w-[160px] focus:outline-none focus:border-brand-500 focus:bg-white">
+              </div>
+              <select x-model="bankSort" class="text-[12.5px] bg-ink-50 border border-ink-200 rounded-md px-2 py-1.5 focus:outline-none focus:border-brand-500 focus:bg-white">
+                <option value="recent">Most Recent</option>
+                <option value="accessed">Most Accessed</option>
+                <option value="importance">Highest Confidence</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Card grid -->
+          <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            <template x-for="n in bankCards" :key="n.id">
+              <div :id="'bank-card-'+n.id"
+                   class="mb-card grid-card-enter bg-white border border-ink-200 rounded-xl p-4 shadow-card cursor-pointer flex flex-col"
+                   @click="openModal(n.id)">
+                <!-- Header row -->
+                <div class="flex items-start justify-between gap-2 mb-3">
+                  <div class="flex items-center gap-1.5 flex-wrap">
+                    <span class="bg-brand-500 text-white text-[11px] font-semibold px-2 py-0.5 rounded-full" x-text="n.importance + '%'"></span>
+                    <span class="text-[11px] px-2 py-0.5 rounded-full border flex items-center gap-1.5"
+                          :style="`color:${catColor(n.category)}; border-color:${catColor(n.category)}66; background:${catColor(n.category)}10`">
+                      <span class="w-1.5 h-1.5 rounded-full" :style="`background:${catColor(n.category)}`"></span>
+                      <span x-text="catName(n.category)"></span>
+                    </span>
+                  </div>
+                  <button @click.stop="toggleStar(n.id)" class="text-ink-400 hover:text-amber-500 transition-colors">
+                    <i :data-lucide="starred[n.id] ? 'star' : 'star'" class="w-4 h-4" :class="starred[n.id] ? 'fill-amber-400 text-amber-400 scale-110' : ''" style="transition: transform 150ms"></i>
+                  </button>
+                </div>
+
+                <!-- Title -->
+                <h3 class="text-[14px] font-semibold text-ink-900 leading-snug mb-1.5" x-text="n.name"></h3>
+                <!-- Description -->
+                <p class="text-[12.5px] text-ink-700 leading-relaxed mb-3 line-clamp-3" x-text="n.description"></p>
+
+                <!-- Metadata row -->
+                <div class="flex items-center gap-4 text-[11.5px] text-ink-500 mb-3">
+                  <span class="flex items-center gap-1"><i data-lucide="clock" class="w-3 h-3"></i><span x-text="n.ageStr"></span></span>
+                  <span class="flex items-center gap-1"><i data-lucide="eye" class="w-3 h-3"></i><span x-text="n.timesAccessed"></span></span>
+                  <span class="flex items-center gap-1"><i data-lucide="git-branch" class="w-3 h-3"></i><span x-text="degree(n.id)"></span></span>
+                </div>
+
+                <!-- Context (expandable) -->
+                <button @click.stop="toggleContext(n.id)"
+                        class="flex items-center justify-between w-full text-[11.5px] font-medium text-ink-500 hover:text-ink-900 py-1.5 border-t border-ink-100">
+                  <span>Context & sources</span>
+                  <i data-lucide="chevron-down" class="w-3.5 h-3.5 transition-transform" :class="ctxOpen[n.id] ? 'rotate-180' : ''"></i>
+                </button>
+                <div x-show="ctxOpen[n.id]"
+                     x-transition:enter="transition ease-out duration-200"
+                     x-transition:enter-start="opacity-0 -translate-y-1"
+                     x-transition:enter-end="opacity-100 translate-y-0"
+                     class="text-[12px] text-ink-700 space-y-2 pt-1 pb-2" @click.stop>
+                  <div>
+                    <div class="text-[10.5px] uppercase tracking-wider text-ink-400 font-semibold mb-0.5">Decision context</div>
+                    <p x-text="n.context.summary" class="leading-relaxed"></p>
+                  </div>
+                  <div>
+                    <div class="text-[10.5px] uppercase tracking-wider text-ink-400 font-semibold mb-0.5">Sources</div>
+                    <div class="font-mono text-[11.5px] text-ink-500" x-text="n.context.sources.join(' · ')"></div>
+                  </div>
+                </div>
+
+                <!-- Tags -->
+                <div class="flex flex-wrap gap-1 mt-auto pt-2" x-show="n.tags && n.tags.length">
+                  <template x-for="t in n.tags" :key="t">
+                    <span class="text-[10.5px] bg-ink-100 text-ink-700 px-1.5 py-0.5 rounded font-mono" x-text="t"></span>
+                  </template>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <div x-show="bankCards.length===0" class="text-center py-16 text-ink-500 text-sm">
+            No memories match the current filters.
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ VIEW: CHAT ============ -->
+      <section x-show="view==='chat'" x-transition.opacity.duration.200ms class="absolute inset-0 flex flex-col">
+        <div class="px-6 pt-4 pb-3 border-b border-ink-100 bg-white/60 backdrop-blur flex items-center justify-between">
+          <div class="text-[12.5px] text-ink-500 font-mono" x-text="(sector==='healthcare' ? 'Healthcare' : 'Logistics') + ' Memory Layer · Chat'"></div>
+          <button @click="resetConversation()" class="text-[12px] text-ink-400 hover:text-ink-900 flex items-center gap-1">
+            <i data-lucide="rotate-ccw" class="w-3 h-3"></i> Reset conversation
+          </button>
+        </div>
+
+        <div id="chat-scroll" class="flex-1 overflow-y-auto scroll-pretty">
+          <div class="max-w-[720px] mx-auto px-6 py-6 space-y-6">
+            <template x-for="(msg, idx) in conversation" :key="msg.id">
+              <div class="space-y-1.5">
+                <!-- User bubble -->
+                <template x-if="msg.role==='user'">
+                  <div class="flex justify-end">
+                    <div class="max-w-[80%]">
+                      <div class="bubble-user inline-block px-3.5 py-2 rounded-2xl rounded-tr-md text-[13.5px] leading-relaxed shadow-sm" x-text="msg.text"></div>
+                      <div class="text-[10.5px] text-ink-400 mt-1 text-right font-mono" x-text="msg.time"></div>
+                    </div>
+                  </div>
+                </template>
+                <!-- Assistant bubble -->
+                <template x-if="msg.role==='assistant'">
+                  <div class="flex">
+                    <div class="max-w-[88%]">
+                      <div class="bubble-assistant px-4 py-3 rounded-2xl rounded-tl-md text-[13.5px] leading-relaxed shadow-card">
+                        <div x-show="msg.intro" class="mb-2" :class="msg.streaming && !msg.bulletsRevealed ? 'chat-stream-cursor' : ''" x-text="msg.introVisible || msg.intro"></div>
+                        <ul class="space-y-1 mb-2" x-show="msg.bullets && msg.bullets.length">
+                          <template x-for="(b, bi) in msg.visibleBullets || []" :key="bi">
+                            <li class="flex gap-2 text-[13.5px] text-ink-700"><span class="text-brand-500 mt-1">•</span><span x-text="b"></span></li>
+                          </template>
+                        </ul>
+                        <div x-show="msg.outroVisible" class="text-[13.5px] text-ink-700" x-text="msg.outroVisible"></div>
+                      </div>
+
+                      <!-- Citation footer with hover popover -->
+                      <div class="relative inline-flex items-center gap-1.5 mt-1.5 text-[11.5px] text-ink-500 hover:text-ink-900 font-medium cursor-pointer group"
+                           x-show="msg.references && msg.references.length"
+                           @mouseenter="msg.popoverOpen=true" @mouseleave="msg.popoverOpen=false">
+                        <i data-lucide="brain" class="w-3.5 h-3.5 text-brand-500"></i>
+                        <span><span class="underline decoration-dotted underline-offset-2" x-text="(msg.references||[]).length + ' memories referenced'"></span></span>
+                        <span class="text-ink-300 ml-1 font-mono" x-text="'· ' + msg.time"></span>
+
+                        <div x-show="msg.popoverOpen" x-transition.opacity
+                             class="cite-pop absolute left-0 top-full mt-2 z-40 bg-white border border-ink-200 rounded-xl shadow-panel p-2 w-[340px]">
+                          <template x-for="rid in (msg.references || [])" :key="rid">
+                            <div class="flex items-start gap-2 p-2 rounded-lg hover:bg-ink-50 transition-colors">
+                              <div class="flex-1 min-w-0">
+                                <div class="flex items-center gap-1.5 mb-1">
+                                  <span class="bg-brand-500 text-white text-[10px] font-semibold px-1.5 py-0.5 rounded-full" x-text="nodeById(rid)?.importance + '%'"></span>
+                                  <span class="text-[10px] px-1.5 py-0.5 rounded-full border whitespace-nowrap"
+                                        :style="`color:${catColor(nodeById(rid)?.category)}; border-color:${catColor(nodeById(rid)?.category)}66; background:${catColor(nodeById(rid)?.category)}10`"
+                                        x-text="catName(nodeById(rid)?.category)"></span>
+                                </div>
+                                <div class="text-[12px] font-semibold text-ink-900 leading-snug" x-text="nodeById(rid)?.name"></div>
+                                <div class="text-[11.5px] text-ink-500 leading-snug line-clamp-2 mt-0.5" x-text="nodeById(rid)?.description"></div>
+                              </div>
+                              <button @click="openInBank(rid)" class="text-[11px] text-brand-600 hover:text-brand-500 font-medium flex items-center gap-0.5 shrink-0 mt-1">
+                                View <i data-lucide="arrow-right" class="w-3 h-3"></i>
+                              </button>
+                            </div>
+                          </template>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- Input area -->
+        <div class="border-t border-ink-200 bg-white px-6 pt-3 pb-4">
+          <div class="max-w-[720px] mx-auto">
+            <div class="flex flex-wrap gap-1.5 mb-2.5">
+              <template x-for="p in data.suggestedPrompts" :key="p">
+                <button @click="runPrompt(p, $event)"
+                        class="suggest-chip text-[11.5px] px-2.5 py-1 rounded-full border border-ink-200 text-ink-700 hover:border-brand-500 hover:text-brand-600 hover:bg-brand-50 transition-colors">
+                  <span x-text="p"></span>
+                </button>
+              </template>
+            </div>
+            <div class="relative">
+              <input disabled type="text"
+                     placeholder="Ask about protocols, medications, departments…"
+                     class="w-full pl-4 pr-12 py-2.5 text-[13.5px] bg-ink-50 border border-ink-200 rounded-xl text-ink-400 cursor-not-allowed select-none focus:outline-none"
+                     title="Live demo — try one of the suggested questions above.">
+              <button disabled class="absolute right-1.5 top-1/2 -translate-y-1/2 p-2 bg-brand-500/50 rounded-lg cursor-not-allowed">
+                <i data-lucide="send" class="w-4 h-4 text-white"></i>
+              </button>
+            </div>
+            <div class="text-[11px] text-ink-400 mt-1.5 text-center">
+              Demo mode · Press a chip above to run a scripted exchange.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Sector switch overlay -->
+      <div x-show="sectorSwitching" class="sector-overlay">
+        <span class="inline-flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-brand-500 inline-block animate-pulse"></span>
+          <span x-text="'Loading ' + (sector==='healthcare' ? 'Healthcare' : 'Logistics') + ' Memory Layer…'"></span>
+        </span>
+      </div>
+    </main>
+  </div>
+
+  <!-- =================== BANK MODAL =================== -->
+  <template x-if="modalNode">
+    <div class="modal-back fixed inset-0 z-50 flex items-center justify-center p-6 bg-ink-900/30" @click.self="modalNode=null">
+      <div class="modal-card bg-white rounded-2xl shadow-panel border border-ink-200 max-w-2xl w-full max-h-[88vh] overflow-y-auto scroll-pretty">
+        <div class="px-6 pt-5 pb-3 border-b border-ink-100 flex items-start justify-between sticky top-0 bg-white">
+          <div>
+            <div class="flex items-center gap-2 mb-2">
+              <span class="bg-brand-500 text-white text-[11px] font-semibold px-2 py-0.5 rounded-full" x-text="modalNode.importance + '%'"></span>
+              <span class="text-[11px] px-2 py-0.5 rounded-full border flex items-center gap-1.5"
+                    :style="`color:${catColor(modalNode.category)}; border-color:${catColor(modalNode.category)}66; background:${catColor(modalNode.category)}10`">
+                <span class="w-1.5 h-1.5 rounded-full" :style="`background:${catColor(modalNode.category)}`"></span>
+                <span x-text="catName(modalNode.category)"></span>
+              </span>
+            </div>
+            <h2 class="text-[18px] font-semibold text-ink-900" x-text="modalNode.name"></h2>
+          </div>
+          <button @click="modalNode=null" class="text-ink-400 hover:text-ink-900 p-1 rounded-md">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+        <div class="px-6 py-5 space-y-5">
+          <p class="text-[14px] text-ink-700 leading-relaxed" x-text="modalNode.description"></p>
+          <div class="grid grid-cols-3 gap-3">
+            <div class="bg-ink-50 rounded-lg px-3 py-2">
+              <div class="text-[10px] uppercase tracking-wider text-ink-400 font-semibold mb-0.5">Times Accessed</div>
+              <div class="text-[15px] text-ink-900 font-semibold font-mono tabular-nums" x-text="modalNode.timesAccessed"></div>
+            </div>
+            <div class="bg-ink-50 rounded-lg px-3 py-2">
+              <div class="text-[10px] uppercase tracking-wider text-ink-400 font-semibold mb-0.5">Last Activity</div>
+              <div class="text-[15px] text-ink-900 font-semibold font-mono tabular-nums" x-text="modalNode.ageStr"></div>
+            </div>
+            <div class="bg-ink-50 rounded-lg px-3 py-2">
+              <div class="text-[10px] uppercase tracking-wider text-ink-400 font-semibold mb-0.5">Connections</div>
+              <div class="text-[15px] text-ink-900 font-semibold font-mono tabular-nums" x-text="degree(modalNode.id)"></div>
+            </div>
+          </div>
+          <div>
+            <div class="text-[11px] uppercase tracking-wider font-semibold text-ink-500 mb-1.5">Decision context</div>
+            <p class="text-[13px] text-ink-700 leading-relaxed" x-text="modalNode.context.summary"></p>
+          </div>
+          <div>
+            <div class="text-[11px] uppercase tracking-wider font-semibold text-ink-500 mb-1.5">Sources</div>
+            <div class="flex flex-wrap gap-1.5">
+              <template x-for="s in modalNode.context.sources" :key="s">
+                <span class="text-[11.5px] bg-ink-100 text-ink-700 px-2 py-1 rounded-md font-mono" x-text="s"></span>
+              </template>
+            </div>
+          </div>
+          <div>
+            <div class="text-[11px] uppercase tracking-wider font-semibold text-ink-500 mb-1.5">Linked memories</div>
+            <div class="flex flex-wrap gap-1.5">
+              <template x-for="nb in neighbors(modalNode.id)" :key="nb.id">
+                <button @click="modalNode=nb"
+                        class="text-[12px] px-2.5 py-1 rounded-full border border-ink-200 hover:border-brand-500 hover:bg-brand-50 text-ink-700">
+                  <span class="w-1.5 h-1.5 rounded-full inline-block mr-1.5 align-middle" :style="`background:${catColor(nb.category)}`"></span>
+                  <span x-text="nb.name"></span>
+                </button>
+              </template>
+            </div>
+          </div>
+        </div>
+        <div class="px-6 py-3 border-t border-ink-100 flex items-center justify-between sticky bottom-0 bg-white">
+          <div class="flex flex-wrap gap-1">
+            <template x-for="t in (modalNode.tags||[])" :key="t">
+              <span class="text-[11px] bg-ink-100 text-ink-700 px-1.5 py-0.5 rounded font-mono" x-text="t"></span>
+            </template>
+          </div>
+          <button @click="openInGraph(modalNode.id)"
+                  class="text-[12.5px] text-brand-600 hover:text-brand-500 font-medium flex items-center gap-1.5">
+            View in Graph <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- =================== ABOUT MODAL =================== -->
+  <template x-if="aboutOpen">
+    <div class="modal-back fixed inset-0 z-50 flex items-center justify-center p-6 bg-ink-900/30" @click.self="aboutOpen=false">
+      <div class="modal-card bg-white rounded-2xl shadow-panel border border-ink-200 max-w-md w-full p-6">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-brand-500"></span>
+            <h3 class="font-semibold text-[15px]">About this demo</h3>
+          </div>
+          <button @click="aboutOpen=false" class="text-ink-400 hover:text-ink-900"><i data-lucide="x" class="w-4 h-4"></i></button>
+        </div>
+        <div class="space-y-3 text-[13px] text-ink-700 leading-relaxed">
+          <p>The <strong>Institutional Brain</strong> is a memory layer for organizations. It captures decisions, protocols, and outcomes as structured nodes, with explicit links between them. Every recommendation cites its sources.</p>
+          <p>This page is a static, interactive demo of the application. Data is hand-authored for two domains — <strong>Healthcare</strong> and <strong>Logistics</strong> — using the same underlying architecture. The sector switcher swaps the dataset; the UI does not change.</p>
+          <p class="text-ink-500 text-[12px]">Chat input is intentionally disabled — only the scripted exchanges run, and they cite the same memories you see in the Graph and Bank views.</p>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- =================== DATA =================== -->
+  <script>
+  // =========================================================================
+  //  HEALTHCARE DATA  (~42 nodes)
+  // =========================================================================
+  const HEALTHCARE_DATA = {
+    meta: { name: 'Healthcare Memory Layer', nodeCount: 42, connectionCount: 67, avgImportance: 87 },
+    categories: [
+      { id: 'patient-care',         name: 'Patient Care',          color: '#14B8A6', count: 6 },
+      { id: 'clinical-guidelines',  name: 'Clinical Guidelines',   color: '#3B82F6', count: 5 },
+      { id: 'medications',          name: 'Medications',           color: '#10B981', count: 5 },
+      { id: 'medical-conditions',   name: 'Medical Conditions',    color: '#EF4444', count: 5 },
+      { id: 'healthcare-providers', name: 'Healthcare Providers',  color: '#8B5CF6', count: 5 },
+      { id: 'compliance',           name: 'Compliance',            color: '#F59E0B', count: 5 },
+      { id: 'patient-safety',       name: 'Patient Safety',        color: '#F97316', count: 6 },
+      { id: 'departments',          name: 'Departments',           color: '#64748B', count: 5 },
+    ],
+    nodes: [
+      // Patient Care
+      { id:'h1',  name:'ED Triage Protocol (ESI v4)', category:'patient-care', importance:92,
+        description:'Five-level Emergency Severity Index triage with explicit escalation paths. Target door-to-physician <15 min for ESI 1–2; reassessment cadence by acuity tier.',
+        timesAccessed:84, ageStr:'2h ago', tags:['triage','emergency','esi'],
+        context:{ summary:'Re-established during 2024 ED throughput review after a high-acuity surge in November. Active in 4 departments; nurse champion model in place.',
+          sources:['EHR triage module','M&M conference notes','ED dashboard','National triage guidelines (ESI v4)'] } },
+      { id:'h2',  name:'Sepsis Bundle Protocol (SEP-1)', category:'patient-care', importance:98,
+        description:'CMS SEP-1 bundle: lactate <3h, blood cultures pre-antibiotics, broad-spectrum antibiotics <3h, 30 mL/kg crystalloid for hypotension. 6-hour reassessment with vasopressors and repeat lactate as indicated.',
+        timesAccessed:213, ageStr:'1d ago', tags:['sepsis','bundle','critical'],
+        context:{ summary:'Reviewed after Q3 2024 CMS audit. Compliance rose from 71% → 89% following nursing-pharmacy alignment on STAT antibiotic delivery.',
+          sources:['CMS SEP-1 reporting','Pharmacy STAT logs','ICU notes','Surviving Sepsis Campaign 2021'] } },
+      { id:'h3',  name:'Stroke Alert Criteria', category:'patient-care', importance:96,
+        description:'NIH Stroke Scale on arrival, CT within 25 minutes, tPA within 60 minutes if eligible, mechanical thrombectomy consideration for large-vessel occlusion. 24/7 neuro coverage as a Comprehensive Stroke Center.',
+        timesAccessed:142, ageStr:'9h ago', tags:['stroke','tpa','neuro'],
+        context:{ summary:'Last activated 11 times in October. Door-to-needle median 38 min, well under the 60 min target. Comprehensive Stroke Center recertification due 2026-Q1.',
+          sources:['Get With The Guidelines registry','Radiology TAT report','Neuro on-call log','AHA Stroke Guidelines 2023'] } },
+      { id:'h4',  name:'ICU Admission Criteria', category:'patient-care', importance:89,
+        description:'Objective threshold criteria for ICU admission: hemodynamic instability requiring pressors, mechanical ventilation, GCS ≤8, or organ-specific scoring above defined cutoffs. Escalation matrix when ICU is at capacity.',
+        timesAccessed:96, ageStr:'5h ago', tags:['icu','admission','criteria'],
+        context:{ summary:'Revised after a 2024 throughput study found 12% of step-down patients required upgrade within 24h. Criteria tightened around respiratory and hemodynamic thresholds.',
+          sources:['SCCM admission guidelines','Hospital throughput study 2024','ICU census dashboard'] } },
+      { id:'h5',  name:'Pediatric Trauma Protocol', category:'patient-care', importance:87,
+        description:'Weight-based resuscitation via Broselow tape, age-adjusted vital sign thresholds, mandatory pediatric trauma team activation for high-energy mechanisms or any unstable vitals. Family-present resuscitation supported.',
+        timesAccessed:38, ageStr:'3d ago', tags:['pediatric','trauma','broselow'],
+        context:{ summary:'Activations rose 18% YoY after regional Level II trauma designation. Simulation drills run quarterly with PICU and anesthesia.',
+          sources:['ATLS Pediatric supplement','PALS guidelines','Regional trauma registry'] } },
+      { id:'h6',  name:'Discharge Planning Workflow', category:'patient-care', importance:78,
+        description:'Multi-disciplinary discharge huddle within 24h of admission. Predicted discharge date posted to whiteboard; case management, pharmacy, and PT/OT engaged early to flag barriers.',
+        timesAccessed:54, ageStr:'1d ago', tags:['discharge','los','case-mgmt'],
+        context:{ summary:'Pilot reduced average length of stay 0.6 days on 3 East. Now standard across all medicine units; surgery rollout in progress.',
+          sources:['LOS dashboard','Case management notes','IHI discharge bundle'] } },
+
+      // Clinical Guidelines
+      { id:'h7',  name:'Antibiotic Stewardship Program', category:'clinical-guidelines', importance:91,
+        description:'Pre-authorization for restricted antibiotics, 48–72h prospective audit, mandatory de-escalation review at day 3. ID consult required for vancomycin >5 days or carbapenem use.',
+        timesAccessed:128, ageStr:'6h ago', tags:['abx','stewardship','id'],
+        context:{ summary:'Carbapenem usage down 22% since program launch. C. difficile incidence at 8-quarter low.',
+          sources:['Pharmacy stewardship reports','Infection control dashboards','CDC Core Elements'] } },
+      { id:'h8',  name:'Pain Management Guidelines', category:'clinical-guidelines', importance:84,
+        description:'Multimodal-first analgesia, opioid prescribing limits (≤5 days for acute non-cancer pain), PDMP check required, naloxone co-prescribing above threshold doses.',
+        timesAccessed:71, ageStr:'2d ago', tags:['pain','opioid','pdmp'],
+        context:{ summary:'Opioid prescriptions per discharge fell 31% over two years; multimodal order set is now default in 6 service lines.',
+          sources:['CDC opioid guidelines','PDMP integration logs','Anesthesia pain service'] } },
+      { id:'h9',  name:'DVT Prophylaxis Standards', category:'clinical-guidelines', importance:86,
+        description:'Risk stratification on admission (Caprini for surgical, Padua for medical). Mechanical + pharmacologic prophylaxis for high-risk; daily reassessment for bleeding risk.',
+        timesAccessed:92, ageStr:'8h ago', tags:['dvt','vte','prophylaxis'],
+        context:{ summary:'Hospital-acquired VTE rate at 0.42% — below national benchmark of 0.7%. Order set forces explicit risk assessment.',
+          sources:['ACCP CHEST guidelines','VTE event registry','Surgical quality dashboard'] } },
+      { id:'h10', name:'Insulin Management Protocol', category:'clinical-guidelines', importance:88,
+        description:'Basal-bolus regimens preferred over sliding scale. ICU glycemic target 140–180 mg/dL. Hypoglycemia protocol with nurse-driven D50 administration and root-cause review for any glucose <40.',
+        timesAccessed:147, ageStr:'4h ago', tags:['insulin','glucose','diabetes'],
+        context:{ summary:'Mean inpatient glucose tightened from 178 to 162 mg/dL after order-set redesign. Severe hypoglycemia events down 40%.',
+          sources:['ADA standards of care','Glycemic dashboard','Endo consult notes'] } },
+      { id:'h11', name:'Post-Op Care Pathways', category:'clinical-guidelines', importance:81,
+        description:'Service-specific ERAS pathways (colorectal, joint, thoracic). Standing orders for early mobilization, multimodal analgesia, and PONV prophylaxis. Day-of-surgery discharge for select procedures.',
+        timesAccessed:63, ageStr:'1d ago', tags:['eras','post-op','recovery'],
+        context:{ summary:'Joint replacement LOS averaged 1.4 days post-rollout, down from 2.6. SSI rates stable.',
+          sources:['ERAS Society pathways','Surgical outcomes registry','Anesthesia handoffs'] } },
+
+      // Medications
+      { id:'h12', name:'High-Alert Medication List', category:'medications', importance:94,
+        description:'Institutional list aligned to ISMP: insulin, heparin, opioids, neuromuscular blockers, concentrated electrolytes, chemotherapy. Independent double-check and barcode scanning required.',
+        timesAccessed:201, ageStr:'3h ago', tags:['high-alert','safety','double-check'],
+        context:{ summary:'Updated 2025-Q1 to add concentrated lidocaine following an ISMP national alert. BCMA compliance at 98.4%.',
+          sources:['ISMP high-alert list','BCMA scan logs','Pharmacy P&T minutes'] } },
+      { id:'h13', name:'Anticoagulation Protocol', category:'medications', importance:90,
+        description:'Weight-based heparin nomograms, DOAC dose adjustment by renal function and indication, bridging guidance for procedures. Anticoag service rounds daily on inpatient warfarin and complex DOAC cases.',
+        timesAccessed:118, ageStr:'7h ago', tags:['anticoag','heparin','doac'],
+        context:{ summary:'Anticoag service launched 2023; therapeutic-range time for heparin improved from 54% → 78%. Bleeding events flat despite increased DOAC use.',
+          sources:['Anticoag service notes','Pharmacy nomograms','CHEST anticoagulation guidelines'] } },
+      { id:'h14', name:'Drug Interaction Screening', category:'medications', importance:85,
+        description:'EHR-integrated interaction alerts tiered by severity. Pharmacist verification required for all severity-1 alerts; override reason mandatory and audited.',
+        timesAccessed:88, ageStr:'10h ago', tags:['interactions','alerts','ehr'],
+        context:{ summary:'Alert override audit reduced fatigue: total alerts down 34% after tuning low-value interactions out of the rule set.',
+          sources:['EHR clinical decision support','Pharmacy override audit','Lexicomp'] } },
+      { id:'h15', name:'Pediatric Dosing Guidelines', category:'medications', importance:87,
+        description:'Weight-based dosing with hard maximums; preferred concentration list to standardize syringe sizes. Smart-pump library limits enforced for all pediatric IV infusions.',
+        timesAccessed:46, ageStr:'2d ago', tags:['pediatric','dosing','pump'],
+        context:{ summary:'Tenfold dose errors eliminated since rollout of standardized concentrations and pump library limits in 2023.',
+          sources:['Pediatric Lexicomp','Smart pump CQI','ISMP pediatric tools'] } },
+      { id:'h16', name:'IV Compatibility Matrix', category:'medications', importance:76,
+        description:'Pharmacy-maintained compatibility matrix for common ICU infusions, including Y-site compatibility flags. Updated quarterly with new agents.',
+        timesAccessed:34, ageStr:'4d ago', tags:['iv','compatibility','infusion'],
+        context:{ summary:'Most-referenced in ICU during multi-pressor management. Last revision added angiotensin II and methylene blue.',
+          sources:['Trissel IV compatibility','Pharmacy formulary','ICU pump logs'] } },
+
+      // Medical Conditions
+      { id:'h17', name:'Acute MI Management', category:'medical-conditions', importance:95,
+        description:'STEMI: ECG within 10 min of arrival, cath lab activation, door-to-balloon <90 min. NSTEMI: risk stratification, early invasive strategy for high-risk per TIMI score.',
+        timesAccessed:107, ageStr:'5h ago', tags:['mi','stemi','cath'],
+        context:{ summary:'Median door-to-balloon 64 min — consistently below 90 min target for 11 consecutive quarters.',
+          sources:['ACC/AHA STEMI guidelines','Cath lab activation log','GWTG-CAD registry'] } },
+      { id:'h18', name:'Pneumonia Treatment Pathway', category:'medical-conditions', importance:83,
+        description:'CAP vs HAP stratification, severity scoring (CURB-65, PSI), narrow-spectrum first-line with rapid de-escalation per culture results. Outpatient pathway for low-severity cases.',
+        timesAccessed:79, ageStr:'1d ago', tags:['pneumonia','cap','severity'],
+        context:{ summary:'30-day readmission down 14% since pathway implementation. Average antibiotic course shortened to 5 days for uncomplicated CAP.',
+          sources:['IDSA/ATS pneumonia guidelines','Readmission dashboard','Microbiology culture logs'] } },
+      { id:'h19', name:'Diabetic Ketoacidosis Protocol', category:'medical-conditions', importance:86,
+        description:'Fluid resuscitation, IV insulin infusion with transition criteria, electrolyte monitoring (especially K+, phos), and trigger thresholds for ICU vs step-down placement.',
+        timesAccessed:52, ageStr:'14h ago', tags:['dka','endocrine','infusion'],
+        context:{ summary:'Transition-to-subcutaneous failures driven down by mandatory pharmacist sign-off on the bridging order. Re-onset events <2% in 2024.',
+          sources:['ADA DKA position statement','Endo pharmacy notes','ICU readmission log'] } },
+      { id:'h20', name:'Acute Kidney Injury Workup', category:'medical-conditions', importance:80,
+        description:'KDIGO staging, structured medication review for nephrotoxins, fluid responsiveness assessment, and renal consult triggers at stage 2+. Avoidance list for IV contrast in high-risk patients.',
+        timesAccessed:67, ageStr:'18h ago', tags:['aki','renal','kdigo'],
+        context:{ summary:'AKI bundle reduced contrast-associated AKI 38% on the cardiology service after radiology embedded review.',
+          sources:['KDIGO AKI guidelines','Nephrology consult log','Radiology contrast protocols'] } },
+      { id:'h21', name:'Heart Failure Bundle', category:'medical-conditions', importance:88,
+        description:'GDMT initiation pre-discharge (ARNI/BB/MRA/SGLT2i), daily weights, fluid restriction with patient education, 7-day follow-up appointment booked before discharge.',
+        timesAccessed:102, ageStr:'11h ago', tags:['hf','gdmt','readmission'],
+        context:{ summary:'GDMT pre-discharge initiation reached 91%. 30-day HF readmission rate at 7.8%, well below national average.',
+          sources:['AHA HF guidelines','Cardiology dashboard','7-day follow-up scheduler'] } },
+
+      // Healthcare Providers
+      { id:'h22', name:'On-Call Coverage Matrix', category:'healthcare-providers', importance:79,
+        description:'Service-specific on-call rotations with second-call backup. Mandatory 30-minute response time for ICU and ED consults; explicit handoff structure across shift changes.',
+        timesAccessed:58, ageStr:'1d ago', tags:['on-call','coverage','consult'],
+        context:{ summary:'Centralized scheduling tool replaced legacy spreadsheets in 2024; missed-call incidents fell to zero in 6 months.',
+          sources:['On-call scheduler','Medical staff office','Department call logs'] } },
+      { id:'h23', name:'Credentialing Standards', category:'healthcare-providers', importance:82,
+        description:'Two-year credentialing cycle, focused professional practice evaluation for new privileges, ongoing professional practice evaluation with peer-review trigger thresholds.',
+        timesAccessed:31, ageStr:'5d ago', tags:['credentialing','privileges','peer-review'],
+        context:{ summary:'Last reviewed in 2025 ahead of TJC tracer. FPPE compliance at 100% for new staff in past 12 months.',
+          sources:['Medical staff bylaws','TJC credentialing standards','MSOW database'] } },
+      { id:'h24', name:'Resident Supervision Policy', category:'healthcare-providers', importance:85,
+        description:'Graduated autonomy by PGY level with required attending check-in points: all admissions, all procedures, all high-acuity decisions overnight.',
+        timesAccessed:74, ageStr:'9h ago', tags:['resident','supervision','gme'],
+        context:{ summary:'ACGME site visit 2024 noted "exemplary" supervision documentation; no citations issued.',
+          sources:['ACGME requirements','GME office','Attending sign-off logs'] } },
+      { id:'h25', name:'Nursing Ratios Standard', category:'healthcare-providers', importance:87,
+        description:'Unit-specific ratios: ICU 1:2, step-down 1:3, med-surg 1:5, ED triage-tier dependent. Staffing escalation pathway documented for surge conditions.',
+        timesAccessed:89, ageStr:'2d ago', tags:['nursing','ratios','staffing'],
+        context:{ summary:'Surge plan activated 4 times in 2024 — all winter respiratory peaks. Float pool expanded by 18 FTEs in Q1 2025.',
+          sources:['Nursing leadership','Staffing dashboard','Union agreement'] } },
+      { id:'h26', name:'Pharmacist Verification Workflow', category:'healthcare-providers', importance:84,
+        description:'All non-emergency orders verified by pharmacist before administration. Critical care satellite pharmacy with 24/7 coverage. STAT order target verification time <10 min.',
+        timesAccessed:115, ageStr:'4h ago', tags:['pharmacy','verification','workflow'],
+        context:{ summary:'STAT verification median at 6.4 minutes. ICU satellite pharmacy reduced reach-back consults to central pharmacy by 60%.',
+          sources:['Pharmacy verification logs','ICU satellite metrics','ASHP standards'] } },
+
+      // Compliance
+      { id:'h27', name:'HIPAA Documentation Standard', category:'compliance', importance:96,
+        description:'Minimum-necessary access enforced via EHR roles, annual training mandatory, break-the-glass audit reviewed quarterly. All disclosures logged with patient-accessible accounting.',
+        timesAccessed:121, ageStr:'1d ago', tags:['hipaa','privacy','audit'],
+        context:{ summary:'Zero reportable breaches in past 36 months. Random access audits surface 2–3 informal coaching events per quarter.',
+          sources:['HHS HIPAA rules','Privacy officer reports','EHR audit logs'] } },
+      { id:'h28', name:'Joint Commission Tracers', category:'compliance', importance:93,
+        description:'Quarterly internal tracers covering patient flow, medication management, infection control. Findings logged in CAP system with 30-day closure target.',
+        timesAccessed:65, ageStr:'2d ago', tags:['tjc','tracer','cap'],
+        context:{ summary:'Mock survey 2025-Q1 closed 92% of findings within target. Triennial survey window opens 2026.',
+          sources:['TJC standards','Internal tracer log','CAP closure dashboard'] } },
+      { id:'h29', name:'CMS Quality Reporting', category:'compliance', importance:89,
+        description:'Core measure abstraction and submission for IQR program. Concurrent abstraction model with quality staff embedded on inpatient units to flag fallouts in real time.',
+        timesAccessed:43, ageStr:'3d ago', tags:['cms','iqr','core-measure'],
+        context:{ summary:'SEP-1 and stroke measures consistently above 90th percentile. eCQM transition planned for FY26.',
+          sources:['CMS IQR specifications','Quality dashboards','Abstractor notes'] } },
+      { id:'h30', name:'Patient Rights Acknowledgment', category:'compliance', importance:85,
+        description:'Translated patient rights packet provided at registration in 12 languages, with interpreter-assisted explanation for low-literacy and LEP patients. Receipt acknowledgment in EHR.',
+        timesAccessed:38, ageStr:'4d ago', tags:['rights','language','access'],
+        context:{ summary:'LEP access expanded with on-demand video interpreter terminals on every inpatient unit in 2024.',
+          sources:['CMS conditions of participation','Interpreter services log','Patient experience report'] } },
+      { id:'h31', name:'Controlled Substance Logging', category:'compliance', importance:91,
+        description:'Witnessed waste documentation, automated dispensing cabinet discrepancy review within 24h, monthly diversion analytics across all anesthetizing locations.',
+        timesAccessed:78, ageStr:'1d ago', tags:['controlled','diversion','adc'],
+        context:{ summary:'Diversion analytics identified one outlier case in 2024 leading to early intervention and successful return-to-practice with monitoring.',
+          sources:['DEA regulations','ADC discrepancy reports','Diversion analytics platform'] } },
+
+      // Patient Safety
+      { id:'h32', name:'Falls Prevention Bundle', category:'patient-safety', importance:92,
+        description:'Morse Fall Scale on admission and per shift, intentional rounding hourly, low beds and bed alarms for high-risk patients, post-fall huddle within 1 hour of any event.',
+        timesAccessed:96, ageStr:'7h ago', tags:['falls','bundle','rounding'],
+        context:{ summary:'Falls with injury per 1000 patient-days trended down from 0.84 → 0.51 over 18 months.',
+          sources:['NDNQI benchmarks','Falls event log','Post-fall huddle notes'] } },
+      { id:'h33', name:'Pressure Ulcer Prevention', category:'patient-safety', importance:86,
+        description:'Braden score on admission and daily, two-person skin assessment within 24h of admission, repositioning every 2 hours documented, pressure-redistribution surfaces for at-risk patients.',
+        timesAccessed:71, ageStr:'15h ago', tags:['pressure','braden','skin'],
+        context:{ summary:'HAPI rate at 0.7% — below the national benchmark. Wound care nurses round daily on ICU and oncology units.',
+          sources:['NPIAP guidelines','Wound care consult log','HAPI tracking dashboard'] } },
+      { id:'h34', name:'Medication Reconciliation', category:'patient-safety', importance:94,
+        description:'Reconciliation at admission, transfer, and discharge. Pharmacy technicians embedded in admitting locations to obtain best-possible medication history within 24h.',
+        timesAccessed:154, ageStr:'5h ago', tags:['med-rec','transitions','pharmacy'],
+        context:{ summary:'Discrepancies at discharge fell 41% after pharmacy tech program expanded to ED and surgical pre-admit.',
+          sources:['Joint Commission NPSG','Medication reconciliation audit','Discharge summary review'] } },
+      { id:'h35', name:'Surgical Site Verification', category:'patient-safety', importance:95,
+        description:'Universal protocol: surgical site marking by the operating surgeon with the patient awake, formal time-out before incision involving the entire team, retained-object prevention with count discrepancy escalation.',
+        timesAccessed:112, ageStr:'8h ago', tags:['surgical','time-out','wrong-site'],
+        context:{ summary:'Zero wrong-site surgery events since universal protocol redesign in 2022. Time-out audio recording piloted in two ORs.',
+          sources:['Universal Protocol','OR observation audits','Sentinel event policy'] } },
+      { id:'h36', name:'Hand Hygiene Audit', category:'patient-safety', importance:88,
+        description:'Monthly observational audits with secret-shopper methodology across all inpatient units. Unit-level transparent reporting; coaching loop for outlier units.',
+        timesAccessed:67, ageStr:'2d ago', tags:['hygiene','infection','audit'],
+        context:{ summary:'Compliance steady at 94% house-wide. CLABSI and CAUTI rates at multi-year lows.',
+          sources:['Hand hygiene observers','Infection control reports','Joint Commission NPSG.07'] } },
+      { id:'h37', name:'Patient Identification (Two-ID)', category:'patient-safety', importance:97,
+        description:'Two patient identifiers (name and DOB) verified before every procedure, medication administration, specimen collection. Barcode scanning required at point of care.',
+        timesAccessed:188, ageStr:'2h ago', tags:['identification','npsg','bcma'],
+        context:{ summary:'BCMA scan compliance at 98.4% house-wide. Pre-transfusion two-RN verification added 2024 after near-miss event.',
+          sources:['NPSG.01.01.01','BCMA compliance dashboard','Transfusion service'] } },
+
+      // Departments
+      { id:'h38', name:'Emergency Department', category:'departments', importance:90,
+        description:'Level II trauma center, 64 beds, ESI-tiered triage, behavioral health observation area, fast-track for low-acuity. Annual volume ~78,000.',
+        timesAccessed:142, ageStr:'1h ago', tags:['ed','trauma','volume'],
+        context:{ summary:'Boarding hours rose 12% in winter 2024; capacity command center now opens at 80% inpatient occupancy.',
+          sources:['ED operational dashboard','Trauma registry','Capacity report'] } },
+      { id:'h39', name:'Intensive Care Unit', category:'departments', importance:92,
+        description:'34-bed mixed ICU with dedicated cardiothoracic and neuro pods. Closed model with 24/7 intensivist coverage; ECMO program with regional referral catchment.',
+        timesAccessed:118, ageStr:'4h ago', tags:['icu','intensivist','ecmo'],
+        context:{ summary:'APACHE-adjusted mortality below predicted for 14 consecutive quarters. ECMO program ran 47 cases in 2024.',
+          sources:['ICU outcomes registry','APACHE benchmarking','ECMO program report'] } },
+      { id:'h40', name:'Surgical Services', category:'departments', importance:88,
+        description:'18 ORs across two campuses, robotic platform with three consoles, regional perioperative block program, dedicated trauma OR with 24/7 staffing.',
+        timesAccessed:97, ageStr:'6h ago', tags:['or','surgery','perioperative'],
+        context:{ summary:'On-time first-case starts at 87%. Robotic case volume up 24% YoY; capacity bottleneck in turnover times.',
+          sources:['OR scheduling','Perioperative dashboard','Robotic program metrics'] } },
+      { id:'h41', name:'Maternity Ward', category:'departments', importance:84,
+        description:'Labor & delivery, postpartum, and Level III NICU co-located. Hemorrhage cart on every L&D room, mandatory simulation drills quarterly, doula partnership program active.',
+        timesAccessed:62, ageStr:'12h ago', tags:['maternity','obstetrics','nicu'],
+        context:{ summary:'Severe maternal morbidity rate 0.8% — below state average. Birth equity dashboard reviewed monthly.',
+          sources:['OB outcomes registry','Maternal morbidity reviews','NICU census'] } },
+      { id:'h42', name:'Radiology Services', category:'departments', importance:79,
+        description:'24/7 CT and MR coverage, in-house neurointerventional capability, AI-assisted ICH and PE screening with radiologist override. Stroke alert TAT median <20 min.',
+        timesAccessed:131, ageStr:'3h ago', tags:['radiology','imaging','ai-triage'],
+        context:{ summary:'AI triage flag for ICH cut time-to-read by 7 minutes; sensitivity reviewed quarterly for drift.',
+          sources:['Radiology TAT dashboard','AI vendor monthly QA','Neuro-IR call log'] } },
+    ],
+    edges: [
+      // Sepsis (h2) hub
+      ['h2','h7'],['h2','h12'],['h2','h13'],['h2','h1'],['h2','h4'],['h2','h17'],['h2','h26'],
+      // Stroke (h3) hub
+      ['h3','h42'],['h3','h13'],['h3','h1'],['h3','h17'],['h3','h22'],['h3','h25'],
+      // Triage (h1)
+      ['h1','h38'],['h1','h5'],['h1','h22'],
+      // ICU (h4) + ICU dept (h39)
+      ['h4','h39'],['h4','h22'],['h4','h26'],['h4','h21'],
+      // Pediatric trauma
+      ['h5','h15'],['h5','h22'],['h5','h41'],
+      // Discharge
+      ['h6','h21'],['h6','h34'],['h6','h11'],
+      // Antibiotic stewardship
+      ['h7','h12'],['h7','h14'],['h7','h18'],
+      // Pain
+      ['h8','h11'],['h8','h12'],['h8','h31'],
+      // DVT
+      ['h9','h11'],['h9','h13'],
+      // Insulin
+      ['h10','h12'],['h10','h19'],['h10','h26'],
+      // Post-op
+      ['h11','h8'],['h11','h40'],['h11','h34'],
+      // High-alert meds
+      ['h12','h26'],['h12','h31'],['h12','h34'],['h12','h37'],
+      // Anticoag
+      ['h13','h26'],['h13','h17'],['h13','h21'],
+      // Drug interaction
+      ['h14','h26'],['h14','h12'],
+      // Pediatric dosing
+      ['h15','h26'],['h15','h41'],
+      // Acute MI
+      ['h17','h21'],['h17','h22'],
+      // Pneumonia
+      ['h18','h7'],
+      // DKA
+      ['h19','h26'],['h19','h39'],
+      // AKI
+      ['h20','h42'],['h20','h14'],
+      // HF
+      ['h21','h26'],
+      // Resident supervision -> services
+      ['h24','h38'],['h24','h39'],
+      // Nursing ratios -> depts
+      ['h25','h38'],['h25','h39'],['h25','h41'],
+      // Pharmacist verification -> safety
+      ['h26','h34'],['h26','h31'],
+      // HIPAA
+      ['h27','h28'],['h27','h29'],
+      // TJC tracers
+      ['h28','h32'],['h28','h36'],
+      // CMS
+      ['h29','h2'],['h29','h17'],['h29','h35'],
+      // Controlled substances
+      ['h31','h40'],
+      // Falls
+      ['h32','h25'],['h32','h33'],
+      // Pressure -> skin
+      ['h33','h25'],
+      // Med rec -> transitions
+      ['h34','h6'],
+      // Surgical site verification
+      ['h35','h40'],['h35','h37'],
+      // Hand hygiene
+      ['h36','h28'],
+      // Two-ID -> meds & surgery
+      ['h37','h35'],['h37','h12'],
+      // Radiology
+      ['h42','h17'],['h42','h20'],
+    ],
+    chatExamples: [
+      {
+        userText: 'What is our sepsis bundle protocol?',
+        userTime: '09:38 PM',
+        intro: 'Our Sepsis Bundle Protocol (SEP-1):',
+        bullets: [
+          'Lactate level within 3 hours',
+          'Blood cultures before antibiotics',
+          'Broad-spectrum antibiotics within 3 hours',
+          '30 mL/kg crystalloid for hypotension',
+        ],
+        outro: '6-hour bundle includes vasopressors if needed and repeat lactate assessment.',
+        time: '09:38 PM',
+        references: ['h2','h12'],
+      },
+      {
+        userText: 'What are our stroke alert criteria?',
+        userTime: '09:43 PM',
+        intro: 'Stroke Alert Criteria:',
+        bullets: [
+          'NIH Stroke Scale assessment',
+          'CT scan within 25 minutes',
+          'tPA administration within 60 min if eligible',
+          'Thrombectomy consideration for large vessel occlusion',
+        ],
+        outro: 'We are a Comprehensive Stroke Center with 24/7 neuro coverage.',
+        time: '09:43 PM',
+        references: ['h3','h42','h13'],
+      },
+    ],
+    scriptedResponses: {
+      // Mapped responses for clickable suggestion chips
+      'icu-admission': {
+        userText: "Show me our ICU admission criteria",
+        intro: 'ICU admission criteria (objective thresholds):',
+        bullets: [
+          'Hemodynamic instability requiring vasopressors',
+          'Active or imminent mechanical ventilation',
+          'GCS ≤ 8 or rapidly declining neurologic exam',
+          'Organ-specific scoring above defined cutoffs (e.g. SOFA ≥ 2 acute)',
+        ],
+        outro: 'Escalation matrix applies when ICU is at capacity — see ICU Admission Criteria for the rerouting logic.',
+        references: ['h4','h39','h22'],
+      },
+      'peds-trauma': {
+        userText: "What's our pediatric trauma protocol?",
+        intro: 'Pediatric trauma activation:',
+        bullets: [
+          'Weight-based resuscitation via Broselow tape',
+          'Age-adjusted vital sign thresholds',
+          'Mandatory team activation for high-energy mechanism or any unstable vital',
+          'PICU and anesthesia paged at activation',
+        ],
+        outro: 'Family-present resuscitation is supported. Simulation drills run quarterly.',
+        references: ['h5','h15','h41'],
+      },
+      'glucose': {
+        userText: "Glucose monitoring guidelines for inpatients",
+        intro: 'Inpatient glycemic management:',
+        bullets: [
+          'Basal-bolus regimens preferred over sliding scale',
+          'ICU glycemic target 140–180 mg/dL',
+          'Nurse-driven D50 for any glucose <70 with symptoms',
+          'Root-cause review for any glucose <40',
+        ],
+        outro: 'Mean inpatient glucose has tightened to ~162 mg/dL after the redesign of the standard order set.',
+        references: ['h10','h19','h26'],
+      },
+    },
+    suggestedPrompts: [
+      'What is our sepsis bundle protocol?',
+      'What are our stroke alert criteria?',
+      'Show me our ICU admission criteria',
+      "What's our pediatric trauma protocol?",
+      'Glucose monitoring guidelines for inpatients',
+    ],
+  };
+
+  // =========================================================================
+  //  LOGISTICS DATA  (~38 nodes)
+  // =========================================================================
+  const LOGISTICS_DATA = {
+    meta: { name: 'Logistics Memory Layer', nodeCount: 38, connectionCount: 54, avgImportance: 84 },
+    categories: [
+      { id: 'routes',             name: 'Routes',              color: '#14B8A6', count: 5 },
+      { id: 'fleet',              name: 'Fleet',               color: '#3B82F6', count: 5 },
+      { id: 'dispatch-decisions', name: 'Dispatch Decisions',  color: '#10B981', count: 5 },
+      { id: 'carriers',           name: 'Carriers',            color: '#EF4444', count: 5 },
+      { id: 'compliance',         name: 'Compliance',          color: '#8B5CF6', count: 4 },
+      { id: 'safety-incidents',   name: 'Safety Incidents',    color: '#F59E0B', count: 4 },
+      { id: 'hubs',               name: 'Hubs',                color: '#F97316', count: 5 },
+      { id: 'slas',               name: 'SLAs',                color: '#64748B', count: 5 },
+    ],
+    nodes: [
+      // Routes
+      { id:'l1', name:'Southeast Corridor SOP', category:'routes', importance:90,
+        description:'Atlanta → Jacksonville → Miami trunk lane with two intermediate fuel-and-swap stops. Designed for high-volume B2B with a redundant night relay if primary tractor logs hours-of-service exhaustion.',
+        timesAccessed:118, ageStr:'4h ago', tags:['lane','b2b','relay'],
+        context:{ summary:'Re-routed 14 times in Q3 2025, primarily for tropical-storm closures along I-95. Relay drivers staged at Macon during named-storm watch windows.',
+          sources:['DOT route registry','Weather operations log','Carrier dispatch board'] } },
+      { id:'l2', name:'Cross-Border Routing (US-MX)', category:'routes', importance:86,
+        description:'Laredo gateway with Customs-trade-partnership lane, drop-and-hook on bonded yards, and pre-cleared CTPAT carriers for fast crossing. Backup gateway via Pharr if Laredo wait >4h.',
+        timesAccessed:73, ageStr:'2d ago', tags:['cross-border','ctpat','laredo'],
+        context:{ summary:'Q3 wait times spiked above 6h on three occasions, triggering Pharr diversion. CTPAT recertification due 2026-Q1.',
+          sources:['CTPAT compliance portal','Border wait time API','Customs broker reports'] } },
+      { id:'l3', name:'Refrigerated Cargo Routes', category:'routes', importance:92,
+        description:'Reefer-only lanes with mandatory temperature checkpoints every 4 hours. Pre-cooled trailer staging at origin DCs; backup power pads available at three intermediate yards.',
+        timesAccessed:96, ageStr:'6h ago', tags:['reefer','cold-chain','checkpoint'],
+        context:{ summary:'Pre-cool requirement reduced first-mile temperature deviations 64% since 2024. Two unplanned reefer swaps in last 90 days.',
+          sources:['Reefer telematics','Backup power site list','Cold chain QC log'] } },
+      { id:'l4', name:'Last-Mile Urban Routing', category:'routes', importance:78,
+        description:'Density-based clustering of stops, dock appointment windows enforced, return-to-hub gating for unsuccessful deliveries. EV fleet preferred for low-emission zones.',
+        timesAccessed:54, ageStr:'1d ago', tags:['last-mile','urban','ev'],
+        context:{ summary:'EV adoption in last-mile fleet at 28%; routing engine prefers EVs for LEZ deliveries in NYC, LA, Seattle.',
+          sources:['Last-mile dispatch','LEZ compliance','EV charging logs'] } },
+      { id:'l5', name:'Hazmat Approved Lanes', category:'routes', importance:88,
+        description:'Lane-level hazmat eligibility derived from DOT class, state restrictions, tunnel/bridge rules. Driver endorsement matched at dispatch; rerouting around hazmat-restricted infrastructure is automatic.',
+        timesAccessed:41, ageStr:'3d ago', tags:['hazmat','dot','endorsement'],
+        context:{ summary:'Last revised after 2025 placard-mismatch near-miss in Pittsburgh. Lane registry refreshed monthly with state DOT bulletins.',
+          sources:['DOT hazmat regs','State bulletins','Driver endorsement registry'] } },
+
+      // Fleet
+      { id:'l6', name:'Refrigeration Maintenance', category:'fleet', importance:89,
+        description:'500-hour run-time inspection cycle for reefer units, replacement of defrost sensors at 2000 hours, predictive failure alerts via telematics for compressor and fuel-burn anomalies.',
+        timesAccessed:87, ageStr:'8h ago', tags:['reefer','pm','telematics'],
+        context:{ summary:'Predictive flags identified 6 imminent compressor failures in Q3 2025; all swapped before in-service breakdown.',
+          sources:['Reefer maintenance log','Telematics dashboard','OEM service manuals'] } },
+      { id:'l7', name:'Tire Lifecycle Standard', category:'fleet', importance:74,
+        description:'Tread depth thresholds by tire position, retread eligibility rules, tire-pressure-monitoring alerts triaged within shift. Mandatory replacement at 2/32" steer and 4/32" drive.',
+        timesAccessed:36, ageStr:'5d ago', tags:['tires','pm','tpms'],
+        context:{ summary:'Roadside tire failures down 31% since TPMS rollout. Retread program saved 18% in tire spend year-to-date.',
+          sources:['Maintenance shop logs','TPMS alerts','Tire vendor reports'] } },
+      { id:'l8', name:'Fuel Card Policy', category:'fleet', importance:72,
+        description:'Network-only fueling at approved truck stops, idle-time fueling forbidden, gallons-vs-tank-capacity audit weekly to flag potential card misuse.',
+        timesAccessed:48, ageStr:'2d ago', tags:['fuel','card','audit'],
+        context:{ summary:'Anomaly review surfaced two card-skimming incidents in 2024; vendors paid the fraud cost after audit-trail review.',
+          sources:['Fuel card vendor','Audit reports','Truck stop network list'] } },
+      { id:'l9', name:'Driver Hours of Service', category:'fleet', importance:91,
+        description:'ELD-enforced HOS with 11/14/70 rules, mandatory pre-trip inspection logging, exception management for adverse driving conditions and short-haul provisions.',
+        timesAccessed:128, ageStr:'2h ago', tags:['hos','eld','safety'],
+        context:{ summary:'Zero HOS violations in past 9 months. Adverse-driving exceptions used 14 times during winter storms, all properly documented.',
+          sources:['ELD vendor','FMCSA HOS rules','Driver compliance dashboard'] } },
+      { id:'l10', name:'Telematics Calibration', category:'fleet', importance:76,
+        description:'Quarterly telematics calibration covering speed, harsh-event sensitivity, fuel-burn baseline. Anomaly thresholds tuned per tractor model to reduce false positives.',
+        timesAccessed:39, ageStr:'4d ago', tags:['telematics','calibration','data-quality'],
+        context:{ summary:'False-positive harsh-brake alerts cut 52% after model-specific tuning. Driver trust in coaching feedback improved measurably.',
+          sources:['Telematics vendor','Calibration logs','Driver coaching feedback'] } },
+
+      // Dispatch decisions
+      { id:'l11', name:'Weather Reroute Logic', category:'dispatch-decisions', importance:88,
+        description:'NWS feed ingestion at 15-minute cadence, automatic load-level rerouting recommendation for active named storms and severe-weather watches. Human dispatcher confirms before commit.',
+        timesAccessed:103, ageStr:'5h ago', tags:['weather','reroute','nws'],
+        context:{ summary:'Activated 23 times across Atlantic hurricane season 2025. 81% of automated suggestions accepted unchanged by dispatchers.',
+          sources:['NWS API','Dispatch override log','Storm season after-action review'] } },
+      { id:'l12', name:'Load Consolidation Rules', category:'dispatch-decisions', importance:82,
+        description:'Same-day, same-lane LTL consolidation up to 80% trailer fill; explicit no-consolidate flags for hazmat, fragile, and time-critical cargo.',
+        timesAccessed:67, ageStr:'1d ago', tags:['ltl','consolidation','utilization'],
+        context:{ summary:'Average trailer fill rose from 71% → 84% on consolidatable lanes after rule rollout. Customer fill-cuts unchanged.',
+          sources:['TMS analytics','Customer service complaints','Lane utilization dashboard'] } },
+      { id:'l13', name:'Driver Pairing Protocol', category:'dispatch-decisions', importance:79,
+        description:'Team-driving assignments matched on home-base region, language, and HOS-cycle phase. Conflict-resolution path documented for in-cab disagreements.',
+        timesAccessed:42, ageStr:'2d ago', tags:['team-driving','pairing','culture'],
+        context:{ summary:'Team retention improved 17% after pairing redesign in 2024; in-cab incident reports dropped to a 3-year low.',
+          sources:['HR retention data','In-cab incident reports','Driver survey'] } },
+      { id:'l14', name:'Peak Window Allocation', category:'dispatch-decisions', importance:81,
+        description:'November–January peak-window capacity reservations for top-100 customers, surge pricing for spot loads, dedicated trailer pools held at three hubs.',
+        timesAccessed:58, ageStr:'1d ago', tags:['peak','allocation','surge'],
+        context:{ summary:'Peak SLA attainment held at 96.4% in 2024 despite carrier-market tightening. Dedicated trailer pool prevented 9 missed-window events.',
+          sources:['Peak-season after-action','Customer master list','Spot-market rate index'] } },
+      { id:'l15', name:'Emergency Dispatch Escalation', category:'dispatch-decisions', importance:86,
+        description:'Five-tier escalation from dispatcher → supervisor → ops manager → director → VP. Defined response times per tier; on-call rotation published weekly.',
+        timesAccessed:34, ageStr:'3d ago', tags:['escalation','on-call','severity'],
+        context:{ summary:'Median tier-1 acknowledgment under 2 minutes 24/7. Tier-3 invoked twice in 2025: warehouse fire and chassis-shortage event.',
+          sources:['Escalation playbook','On-call schedule','Incident log'] } },
+
+      // Carriers
+      { id:'l16', name:'Carrier Onboarding Standard', category:'carriers', importance:84,
+        description:'Insurance verification, safety rating ≥ Satisfactory, drug program attestation, FMCSA authority confirmation. 30-day probation with shadow-load tracking before standard rates.',
+        timesAccessed:51, ageStr:'2d ago', tags:['onboarding','vetting','fmcsa'],
+        context:{ summary:'34 carriers onboarded YTD; 4 declined for borderline SMS scores even with appropriate insurance.',
+          sources:['FMCSA SMS','Carrier vendor portal','Risk committee minutes'] } },
+      { id:'l17', name:'Insurance Verification', category:'carriers', importance:82,
+        description:'Cargo $100k, auto liability $1M, general liability $1M minimums. Certificate-of-insurance with naming-as-additional-insured required and tracked to expiration.',
+        timesAccessed:67, ageStr:'1d ago', tags:['insurance','coi','minimums'],
+        context:{ summary:'COI lapse detection automated in 2024; one expired-COI shipment auto-blocked at booking last quarter.',
+          sources:['COI vendor','Carrier risk dashboard','Underwriter notes'] } },
+      { id:'l18', name:'Carrier Scorecard SLA', category:'carriers', importance:80,
+        description:'On-time pickup ≥95%, on-time delivery ≥97%, tender-acceptance ≥85%. Scorecards reviewed quarterly with at-risk carriers offered remediation paths.',
+        timesAccessed:46, ageStr:'2d ago', tags:['scorecard','otp','tender'],
+        context:{ summary:'Top-decile carriers receive preferred routing weighting; bottom-decile rotated out of dedicated allocations.',
+          sources:['Scorecard dashboard','QBR notes','Procurement contracts'] } },
+      { id:'l19', name:'3PL Compliance Audit', category:'carriers', importance:77,
+        description:'Annual on-site audit of 3PL warehousing partners covering temperature control, security, training records, and physical inventory accuracy.',
+        timesAccessed:28, ageStr:'5d ago', tags:['3pl','audit','warehouse'],
+        context:{ summary:'2025 audits found two corrective actions related to inventory cycle counting; both closed within 30 days.',
+          sources:['Audit reports','Corrective action log','Warehouse KPIs'] } },
+      { id:'l20', name:'Subcontractor Agreement Template', category:'carriers', importance:69,
+        description:'Standard subcontractor contract covering rate confirmation, indemnification, cargo claims handling, and broker-carrier mediation clauses.',
+        timesAccessed:22, ageStr:'7d ago', tags:['contract','subcontractor','claims'],
+        context:{ summary:'Last revision 2024 aligned the cargo-claims clause with the BMC-32 broker bond requirements.',
+          sources:['Legal template library','BMC-32 reference','Claims handling SOP'] } },
+
+      // Compliance
+      { id:'l21', name:'DOT Inspection Protocol', category:'compliance', importance:88,
+        description:'Pre-trip and post-trip inspection logging via ELD app, fault-priority routing to maintenance shops, roadside-inspection prep packet kept in every tractor.',
+        timesAccessed:82, ageStr:'9h ago', tags:['dot','inspection','pre-trip'],
+        context:{ summary:'CSA out-of-service rate at 4.1%, well below the 20% national average for similar fleet size.',
+          sources:['FMCSA CSA','Maintenance shop tickets','Roadside inspection records'] } },
+      { id:'l22', name:'Customs Documentation Standard', category:'compliance', importance:85,
+        description:'Commercial invoice, packing list, BOL, certificate-of-origin, and HTS classification required pre-tender for cross-border loads. Brokers receive packets ≥6h before crossing.',
+        timesAccessed:54, ageStr:'1d ago', tags:['customs','docs','broker'],
+        context:{ summary:'Document-related border holds dropped from 7.2% to 1.4% in 2024 after broker integration was tightened.',
+          sources:['Customs broker portal','Border hold log','HTS classification audit'] } },
+      { id:'l23', name:'Sanctions Screening', category:'compliance', importance:87,
+        description:'OFAC SDN screening at customer onboarding and at booking-time for new shipper/consignee combinations. Refresh cadence weekly against full list.',
+        timesAccessed:35, ageStr:'3d ago', tags:['ofac','sanctions','screening'],
+        context:{ summary:'One match cleared as false positive in 2025; no true matches. Process audited quarterly.',
+          sources:['OFAC SDN feed','Screening vendor','Compliance audit'] } },
+      { id:'l24', name:'Tariff Code Verification', category:'compliance', importance:75,
+        description:'HTS classification confirmed by licensed customs broker for new product types. Reuse permitted only for identical SKUs; ambiguous classifications escalated to in-house counsel.',
+        timesAccessed:24, ageStr:'6d ago', tags:['hts','classification','customs'],
+        context:{ summary:'Two tariff-code disputes resolved with CBP in 2025 favorably; both involved electronics subassemblies.',
+          sources:['HTS database','Customs broker','In-house counsel memos'] } },
+
+      // Safety incidents
+      { id:'l25', name:'Accident Response Protocol', category:'safety-incidents', importance:93,
+        description:'Driver safety first, scene secured, photo evidence captured, drug-and-alcohol test within statutory window for any DOT-recordable event. Insurance and customer notified per defined timelines.',
+        timesAccessed:43, ageStr:'2d ago', tags:['accident','dot-recordable','response'],
+        context:{ summary:'Average notification-to-customer time at 47 minutes for DOT-recordable events. Drug-and-alcohol testing compliance 100%.',
+          sources:['Safety hotline log','DOT 49 CFR §382','Insurance carrier reports'] } },
+      { id:'l26', name:'Cargo Theft Recovery', category:'safety-incidents', importance:78,
+        description:'Real-time GPS recovery procedure, law enforcement liaison, customer notification within 2 hours of confirmed theft. Geofencing for high-value cargo with proactive alerts.',
+        timesAccessed:18, ageStr:'10d ago', tags:['theft','recovery','geofence'],
+        context:{ summary:'Three full-truck thefts in 2024; two recovered within 18h via GPS. High-value cargo now under geofence by default.',
+          sources:['CargoNet alerts','Law enforcement liaison','GPS recovery log'] } },
+      { id:'l27', name:'Spill Response Bundle', category:'safety-incidents', importance:81,
+        description:'Hazmat spill kit in every hazmat-endorsed tractor, 24/7 environmental contractor on retainer, NRC notification protocol for reportable quantities.',
+        timesAccessed:11, ageStr:'14d ago', tags:['spill','hazmat','nrc'],
+        context:{ summary:'No reportable spills in past 18 months. Spill drills conducted at each major hub annually.',
+          sources:['EPA NRC reporting','Environmental contractor','Hazmat training records'] } },
+      { id:'l28', name:'Driver Fatigue Alert', category:'safety-incidents', importance:84,
+        description:'In-cab camera fatigue detection with automated coaching, dispatcher escalation on repeat alerts, mandatory pull-over after second alert in a single shift.',
+        timesAccessed:29, ageStr:'4d ago', tags:['fatigue','camera','coaching'],
+        context:{ summary:'Fatigue-related preventable accidents down 44% since rollout. Driver acceptance improved after privacy controls clarified in 2024.',
+          sources:['In-cab camera vendor','Coaching log','Driver advisory committee'] } },
+
+      // Hubs
+      { id:'l29', name:'Atlanta Cross-Dock Hub', category:'hubs', importance:90,
+        description:'Southeast region anchor: 220 doors, dual-rail siding, 24/7 sort cycles, dedicated reefer staging area with backup generators.',
+        timesAccessed:101, ageStr:'3h ago', tags:['atlanta','cross-dock','reefer'],
+        context:{ summary:'Tier-3 escalation activated during 2024 ice storm; hub remained operational on backup power for 11 hours.',
+          sources:['Hub operations dashboard','Generator runtime logs','Storm after-action'] } },
+      { id:'l30', name:'Chicago Distribution Hub', category:'hubs', importance:87,
+        description:'Midwest crossroads with intermodal capability, 180 doors, automated sortation system handling 14,000 packages/hr at peak.',
+        timesAccessed:74, ageStr:'7h ago', tags:['chicago','intermodal','sortation'],
+        context:{ summary:'Sortation throughput rose 22% YoY after AI-assisted induction lane upgrades. Q4 peak achievable without overflow trailers.',
+          sources:['Sortation vendor metrics','Throughput reports','AI vendor MR'] } },
+      { id:'l31', name:'LA Port Hub', category:'hubs', importance:85,
+        description:'Drayage-focused operation at the San Pedro Bay complex, chassis pool agreement with terminals, ELD-compliant pre-pull program for high-priority customers.',
+        timesAccessed:62, ageStr:'1d ago', tags:['drayage','port','pre-pull'],
+        context:{ summary:'Chassis-shortage event 2025-Q2 absorbed via pool agreement; no customer SLAs missed.',
+          sources:['Port community system','Chassis pool contract','Drayage dispatch'] } },
+      { id:'l32', name:'Dallas Sorting Hub', category:'hubs', importance:79,
+        description:'Texas-anchor sorting facility with cross-border focus, 130 doors, mexicano-spanish-bilingual dock and dispatch coverage.',
+        timesAccessed:46, ageStr:'2d ago', tags:['dallas','cross-border','bilingual'],
+        context:{ summary:'Border-crossing sort volume up 18% YoY. Bilingual coverage essential for Laredo-bound freight handover quality.',
+          sources:['Cross-border tonnage report','Workforce planning','Customer NPS'] } },
+      { id:'l33', name:'Newark Gateway Hub', category:'hubs', importance:83,
+        description:'NY/NJ metro distribution with port and air cargo links, ELP zone proximity, FTZ-bonded warehouse footprint for select customers.',
+        timesAccessed:55, ageStr:'1d ago', tags:['newark','metro','ftz'],
+        context:{ summary:'FTZ tenant migration completed 2024; two top customers now using bonded inventory model.',
+          sources:['FTZ application docs','Port handoff log','Customer onboarding'] } },
+
+      // SLAs
+      { id:'l34', name:'2-Day Standard SLA', category:'slas', importance:78,
+        description:'48-hour pickup-to-delivery target on lanes <600 mi, 95% attainment threshold, automated customer notification on at-risk shipments.',
+        timesAccessed:88, ageStr:'5h ago', tags:['2day','standard','attainment'],
+        context:{ summary:'Attainment held at 95.8% in 2025 despite carrier-market tightening. Auto-notification cut customer-service inbound 31%.',
+          sources:['SLA dashboard','Customer notification log','Carrier scorecards'] } },
+      { id:'l35', name:'Next-Flight-Out Tier', category:'slas', importance:84,
+        description:'Air-freight expedite tier for critical shipments, paired with surface-leg pickup and delivery, manual dispatcher confirmation required at every leg.',
+        timesAccessed:34, ageStr:'3d ago', tags:['nfo','expedite','air'],
+        context:{ summary:'Used 47 times in 2025, primarily for medical-device and aerospace customers. 100% on-time delivery.',
+          sources:['Expedite dispatch log','Air carrier partners','Customer expedite contracts'] } },
+      { id:'l36', name:'Frozen Chain SLA', category:'slas', importance:91,
+        description:'-18°C continuous chain commitment, breach-tolerance window of 30 min above -15°C, automatic claim trigger and chain-of-custody escrow on any breach.',
+        timesAccessed:71, ageStr:'14h ago', tags:['frozen','chain','breach'],
+        context:{ summary:'Two breach events in 2025; both resolved via customer-credit memo and root-cause identified at intermediate yard handoff.',
+          sources:['Reefer telematics','Claims handler log','Customer credit memos'] } },
+      { id:'l37', name:'White-Glove Delivery', category:'slas', importance:80,
+        description:'Two-person residential delivery for high-touch items: inside placement, debris removal, setup-and-test for select product categories. Pre-call window narrows to 2h before arrival.',
+        timesAccessed:32, ageStr:'4d ago', tags:['white-glove','residential','setup'],
+        context:{ summary:'Customer satisfaction 4.83/5 across 2025. Pre-call window tightening reduced missed-delivery rate from 6% to 2%.',
+          sources:['CSAT survey','Pre-call call center logs','Final-mile contractor agreements'] } },
+      { id:'l38', name:'B2B Critical SLA', category:'slas', importance:87,
+        description:'Production-line and JIT customer category with 4h delivery window, paired drivers for redundancy, route-locked tractors not eligible for substitution.',
+        timesAccessed:48, ageStr:'1d ago', tags:['b2b','jit','critical'],
+        context:{ summary:'Zero line-down events caused by transportation in 2025. Paired-driver model is the binding constraint on lane growth.',
+          sources:['Production-line customer contracts','Lane capacity analysis','Driver scheduling'] } },
+    ],
+    edges: [
+      // Routes cluster
+      ['l1','l29'],['l1','l11'],['l1','l9'],['l1','l38'],
+      ['l2','l22'],['l2','l23'],['l2','l32'],['l2','l16'],
+      ['l3','l6'],['l3','l36'],['l3','l29'],['l3','l11'],
+      ['l4','l37'],['l4','l30'],
+      ['l5','l27'],['l5','l21'],['l5','l9'],
+      // Fleet
+      ['l6','l3'],['l6','l21'],['l6','l10'],
+      ['l7','l21'],
+      ['l8','l10'],
+      ['l9','l21'],['l9','l28'],['l9','l13'],
+      ['l10','l28'],
+      // Dispatch
+      ['l11','l1'],['l11','l29'],['l11','l15'],
+      ['l12','l34'],['l12','l30'],
+      ['l13','l9'],
+      ['l14','l29'],['l14','l30'],['l14','l33'],['l14','l38'],
+      ['l15','l25'],['l15','l11'],
+      // Carriers
+      ['l16','l17'],['l16','l18'],
+      ['l17','l18'],
+      ['l18','l34'],['l18','l36'],
+      ['l19','l29'],['l19','l30'],
+      ['l20','l16'],
+      // Compliance
+      ['l21','l25'],['l21','l9'],
+      ['l22','l2'],['l22','l24'],
+      ['l23','l16'],
+      ['l24','l22'],
+      // Safety
+      ['l25','l9'],['l25','l28'],
+      ['l26','l31'],
+      ['l27','l5'],
+      ['l28','l9'],
+      // Hubs
+      ['l29','l38'],['l29','l36'],
+      ['l30','l4'],
+      ['l31','l4'],
+      ['l32','l2'],
+      ['l33','l34'],
+      // SLAs
+      ['l34','l18'],
+      ['l35','l25'],
+      ['l36','l3'],['l36','l29'],['l36','l6'],
+      ['l37','l4'],
+      ['l38','l1'],
+    ],
+    chatExamples: [
+      {
+        userText: "What's our protocol for refrigerated cargo delays?",
+        userTime: '09:38 PM',
+        intro: 'Refrigerated cargo delay handling:',
+        bullets: [
+          'Notify customer within 30 minutes of any delay >1 hour',
+          'Verify reefer temperature logs at the last checkpoint',
+          'Pre-dispatch replacement unit if any temperature deviation >2°C',
+          'Document chain-of-custody and trigger claims escrow if SLA at risk',
+        ],
+        outro: 'Frozen Chain SLA carries an auto-trigger for any deviation above -15°C lasting more than 30 minutes.',
+        time: '09:38 PM',
+        references: ['l6','l36'],
+      },
+      {
+        userText: "What were last quarter's rerouting decisions for the Southeast hub?",
+        userTime: '09:43 PM',
+        intro: 'Southeast rerouting last quarter (Q3 2025):',
+        bullets: [
+          '14 reroutes initiated, 12 weather-driven (Hurricanes Idalia, Beatrice)',
+          'Macon relay staging used during 4 named-storm watch windows',
+          'Tier-3 escalation activated once during the Atlanta hub ice event',
+          'Customer notification accuracy held at 98% via automated weather feed',
+        ],
+        outro: 'Average reroute decision latency was 11 minutes from NWS alert to dispatcher commit.',
+        time: '09:43 PM',
+        references: ['l11','l1','l29'],
+      },
+    ],
+    scriptedResponses: {
+      'fleet-fatigue': {
+        userText: "Show our driver fatigue handling",
+        intro: 'Driver fatigue alert handling:',
+        bullets: [
+          'In-cab camera fatigue detection with automated coaching',
+          'Dispatcher escalation on repeat alerts within a single shift',
+          'Mandatory pull-over after second alert',
+          'Privacy controls reviewed annually with driver advisory committee',
+        ],
+        outro: 'Fatigue-related preventable accidents are down 44% since rollout.',
+        references: ['l28','l9'],
+      },
+      'cross-border': {
+        userText: "What's our cross-border protocol?",
+        intro: 'US-MX cross-border routing:',
+        bullets: [
+          'Laredo gateway with CTPAT-certified carriers',
+          'Document packet to brokers ≥6h before crossing',
+          'Pharr as backup gateway when Laredo wait >4h',
+          'OFAC screening at booking for new shipper/consignee pairs',
+        ],
+        outro: 'Document-related border holds are down from 7.2% to 1.4% since broker integration tightened in 2024.',
+        references: ['l2','l22','l23'],
+      },
+      'sla-attainment': {
+        userText: "How is 2-day standard SLA attainment?",
+        intro: '2-Day Standard SLA at a glance:',
+        bullets: [
+          '48-hour pickup-to-delivery target on lanes <600 mi',
+          'Attainment 95.8% in 2025',
+          'Auto-notification on at-risk shipments cut inbound calls 31%',
+          'Carrier scorecard threshold ≥95% on-time pickup',
+        ],
+        outro: 'Bottom-decile carriers are rotated out of dedicated allocations after two quarters.',
+        references: ['l34','l18','l12'],
+      },
+    },
+    suggestedPrompts: [
+      "What's our protocol for refrigerated cargo delays?",
+      "What were last quarter's rerouting decisions for the Southeast hub?",
+      "Show our driver fatigue handling",
+      "What's our cross-border protocol?",
+      "How is 2-day standard SLA attainment?",
+    ],
+  };
+
+  // =========================================================================
+  //  ALPINE APP
+  // =========================================================================
+  function ibApp() {
+    return {
+      // ---------- state ----------
+      sector: 'healthcare',
+      view: 'graph',
+      selectedCategory: null,
+      selectedNode: null,
+      searchQuery: '',
+      bankFilterCats: [],
+      bankSort: 'recent',
+      bankQuery: '',
+      modalNode: null,
+      conversation: [],
+      sectorSwitching: false,
+      starred: {},
+      ctxOpen: {},
+      aboutOpen: false,
+      _nextMsgId: 1,
+      navItems: [
+        { id:'graph', label:'Memory Graph', icon:'network' },
+        { id:'bank',  label:'Memory Bank',  icon:'database' },
+        { id:'chat',  label:'Chat',         icon:'message-square' },
+      ],
+      bankStats: [],
+
+      // ---------- derived ----------
+      get data() { return this.sector === 'healthcare' ? HEALTHCARE_DATA : LOGISTICS_DATA; },
+      get contextLine() {
+        return `${this.data.meta.name} · ${this.data.meta.nodeCount} nodes · ${this.data.meta.connectionCount} connections`;
+      },
+      get bankCards() {
+        let nodes = [...this.data.nodes];
+        if (this.bankFilterCats.length)
+          nodes = nodes.filter(n => this.bankFilterCats.includes(n.category));
+        if (this.selectedCategory)
+          nodes = nodes.filter(n => n.category === this.selectedCategory);
+        if (this.bankQuery.trim()) {
+          const q = this.bankQuery.toLowerCase();
+          nodes = nodes.filter(n =>
+            n.name.toLowerCase().includes(q) ||
+            n.description.toLowerCase().includes(q) ||
+            (n.tags||[]).some(t => t.toLowerCase().includes(q))
+          );
+        }
+        if (this.bankSort === 'accessed')   nodes.sort((a,b) => b.timesAccessed - a.timesAccessed);
+        else if (this.bankSort === 'importance') nodes.sort((a,b) => b.importance - a.importance);
+        else nodes.sort((a,b) => ageRank(a.ageStr) - ageRank(b.ageStr));
+        return nodes;
+      },
+
+      // ---------- helpers ----------
+      nodeById(id) { return this.data.nodes.find(n => n.id === id); },
+      catColor(id) { const c = this.data.categories.find(c => c.id === id); return c ? c.color : '#94A3B8'; },
+      catName(id)  { const c = this.data.categories.find(c => c.id === id); return c ? c.name : ''; },
+      neighbors(id) {
+        const ids = new Set();
+        this.data.edges.forEach(([a,b]) => { if (a===id) ids.add(b); else if (b===id) ids.add(a); });
+        return [...ids].map(i => this.nodeById(i)).filter(Boolean);
+      },
+      degree(id) { return this.data.edges.filter(([a,b]) => a===id || b===id).length; },
+      computeBankStats() {
+        const ns = this.data.nodes;
+        const avg = Math.round(ns.reduce((s,n) => s + n.importance, 0) / ns.length);
+        const facts = ns.reduce((s,n) => s + (n.context.sources?.length || 0), 0);
+        const ents = new Set(ns.flatMap(n => n.tags||[])).size;
+        this.bankStats = [
+          { label:'Memories',      value: ns.length,                  icon:'database' },
+          { label:'Connections',   value: this.data.edges.length,     icon:'git-branch' },
+          { label:'Facts',         value: facts,                      icon:'file-text' },
+          { label:'Avg Importance',value: avg + '%',                  icon:'gauge' },
+          { label:'Entities',      value: ents,                       icon:'tags' },
+        ];
+      },
+      toggleStar(id)    { this.starred[id] = !this.starred[id]; },
+      toggleContext(id) { this.ctxOpen[id] = !this.ctxOpen[id]; queueIcons(); },
+      toggleBankCat(id) {
+        const i = this.bankFilterCats.indexOf(id);
+        if (i >= 0) this.bankFilterCats.splice(i,1);
+        else        this.bankFilterCats.push(id);
+      },
+
+      // ---------- navigation between views ----------
+      switchView(v) {
+        this.view = v;
+        this.$nextTick(() => { queueIcons(); if (v === 'chat') this.scrollChatToBottom(); });
+      },
+      selectNode(id) {
+        this.selectedNode = this.nodeById(id);
+        focusGraphNode(id);
+        this.$nextTick(queueIcons);
+      },
+      clearSelection() {
+        this.selectedNode = null;
+        clearGraphFocus();
+      },
+      openInBank(id) {
+        this.modalNode = null;
+        this.switchView('bank');
+        this.bankFilterCats = [];
+        this.bankQuery = '';
+        this.selectedCategory = null;
+        this.ctxOpen[id] = true;
+        this.$nextTick(() => {
+          const el = document.getElementById('bank-card-' + id);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el.classList.add('pulse-teal');
+            setTimeout(() => el.classList.remove('pulse-teal'), 1600);
+          }
+          queueIcons();
+        });
+      },
+      openInGraph(id) {
+        this.modalNode = null;
+        this.switchView('graph');
+        this.$nextTick(() => { this.selectNode(id); centerGraphOnNode(id); });
+      },
+      openModal(id) {
+        this.modalNode = this.nodeById(id);
+        this.$nextTick(queueIcons);
+      },
+
+      // ---------- sector switch ----------
+      switchSector(s) {
+        if (s === this.sector) return;
+        // Close any panel/modal immediately so we don't try to render details
+        // for a node from the outgoing dataset while the fade is in progress.
+        this.selectedNode = null;
+        this.modalNode = null;
+        this.sectorSwitching = true;
+        setTimeout(() => {
+          this.sector = s;
+          this.selectedCategory = null;
+          this.searchQuery = '';
+          this.bankFilterCats = [];
+          this.bankQuery = '';
+          this.starred = {};
+          this.ctxOpen = {};
+          this.computeBankStats();
+          this.resetConversation();
+          this.$nextTick(() => {
+            renderGraph(this);
+            setTimeout(() => { this.sectorSwitching = false; queueIcons(); }, 300);
+          });
+        }, 200);
+      },
+
+      // ---------- chat ----------
+      resetConversation() {
+        this.conversation = [];
+        this.data.chatExamples.forEach(ex => this.pushExchange(ex, /*instant=*/true));
+        this.$nextTick(() => { queueIcons(); this.scrollChatToBottom(); });
+      },
+      runPrompt(text, ev) {
+        if (ev?.currentTarget) {
+          ev.currentTarget.classList.add('chip-pulse');
+          setTimeout(() => ev.currentTarget.classList.remove('chip-pulse'), 700);
+        }
+        // Try to match scripted response by exact userText first
+        const all = { ...this.data.scriptedResponses };
+        let match = null;
+        for (const key in all) {
+          if (all[key].userText.toLowerCase() === text.toLowerCase()) { match = all[key]; break; }
+        }
+        if (!match) {
+          // Match against the two main examples
+          const ex = this.data.chatExamples.find(e => e.userText.toLowerCase() === text.toLowerCase());
+          if (ex) {
+            this.pushExchange(ex, false);
+            return;
+          }
+          // Fallback shouldn't happen since prompts come from data
+          match = Object.values(all)[0];
+        }
+        this.pushExchange({
+          userText: match.userText,
+          userTime: nowStamp(),
+          intro: match.intro,
+          bullets: match.bullets,
+          outro: match.outro,
+          time: nowStamp(),
+          references: match.references,
+        }, false);
+      },
+      pushExchange(ex, instant) {
+        const uid = this._nextMsgId++;
+        const aid = this._nextMsgId++;
+        this.conversation.push({ id: uid, role: 'user', text: ex.userText, time: ex.userTime || nowStamp() });
+
+        if (instant) {
+          this.conversation.push({
+            id: aid, role: 'assistant',
+            intro: ex.intro, introVisible: ex.intro,
+            bullets: ex.bullets, visibleBullets: ex.bullets.slice(),
+            outro: ex.outro, outroVisible: ex.outro,
+            time: ex.time, references: ex.references, popoverOpen: false,
+            streaming: false, bulletsRevealed: true,
+          });
+          this.$nextTick(() => { queueIcons(); this.scrollChatToBottom(); });
+          return;
+        }
+
+        // Streamed version — push a placeholder then mutate via array index,
+        // so Alpine's reactive proxy sees every change (a held reference would
+        // bypass the proxy on some Alpine versions).
+        this.conversation.push({
+          id: aid, role: 'assistant',
+          intro: ex.intro, introVisible: ex.intro,
+          bullets: ex.bullets, visibleBullets: [],
+          outro: ex.outro, outroVisible: '',
+          time: ex.time || nowStamp(), references: null, popoverOpen: false,
+          streaming: true, bulletsRevealed: false,
+        });
+        const mi = this.conversation.length - 1;
+        const self = this;
+        this.$nextTick(() => self.scrollChatToBottom());
+
+        const bulletDelay = 220;
+        ex.bullets.forEach((b, i) => {
+          setTimeout(() => {
+            if (!self.conversation[mi]) return;
+            self.conversation[mi].visibleBullets = self.conversation[mi].visibleBullets.concat([b]);
+            self.scrollChatToBottom();
+          }, 200 + i * bulletDelay);
+        });
+        setTimeout(() => {
+          if (!self.conversation[mi]) return;
+          self.conversation[mi].outroVisible = ex.outro;
+          self.conversation[mi].bulletsRevealed = true;
+          self.conversation[mi].streaming = false;
+        }, 200 + ex.bullets.length * bulletDelay + 100);
+        setTimeout(() => {
+          if (!self.conversation[mi]) return;
+          self.conversation[mi].references = ex.references;
+          self.$nextTick(() => { queueIcons(); self.scrollChatToBottom(); });
+        }, 200 + ex.bullets.length * bulletDelay + 350);
+      },
+      scrollChatToBottom() {
+        const el = document.getElementById('chat-scroll');
+        if (el) el.scrollTop = el.scrollHeight + 999;
+      },
+
+      // ---------- init ----------
+      init() {
+        this.computeBankStats();
+        this.resetConversation();
+        // Defer graph render until the browser has laid out the canvas — at
+        // x-init time the x-cloak attribute is still applied, so clientWidth
+        // would be 0 and all forceX/Y anchors would collapse to the origin.
+        const renderWhenSized = () => {
+          const svg = document.getElementById('graph-svg');
+          if (svg && svg.clientWidth > 0) renderGraph(this);
+          else requestAnimationFrame(renderWhenSized);
+        };
+        requestAnimationFrame(renderWhenSized);
+        this.$nextTick(queueIcons);
+        // React to relevant state for D3
+        this.$watch('selectedNode', () => updateGraphSelection(this));
+        this.$watch('selectedCategory', () => updateGraphCategoryFilter(this));
+        this.$watch('searchQuery', () => updateGraphSearch(this));
+        // Re-render icons when major view state changes
+        this.$watch('view',  () => queueIcons());
+        this.$watch('sector',() => queueIcons());
+        this.$watch('bankFilterCats', () => queueIcons());
+        this.$watch('bankSort', () => queueIcons());
+        this.$watch('bankQuery', () => queueIcons());
+        this.$watch('modalNode', () => queueIcons());
+        // Resize handling
+        window.addEventListener('resize', () => { if (this.view === 'graph') renderGraph(this); });
+      },
+    };
+  }
+
+  // =========================================================================
+  //  Helpers
+  // =========================================================================
+  function nowStamp() {
+    const d = new Date();
+    let h = d.getHours(), m = d.getMinutes();
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12 || 12;
+    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')} ${ampm}`;
+  }
+  function ageRank(s) {
+    // crude rank so "Most Recent" sort works on the hand-authored ageStr field
+    const m = s.match(/(\d+)\s*([hdmw])/);
+    if (!m) return 0;
+    const n = parseInt(m[1], 10);
+    const mult = { h: 1, d: 24, w: 168, m: 720 }[m[2]] || 1;
+    return n * mult;
+  }
+  let _iconTimer = null;
+  function queueIcons() {
+    if (_iconTimer) return;
+    _iconTimer = setTimeout(() => {
+      _iconTimer = null;
+      if (window.lucide && lucide.createIcons) lucide.createIcons();
+    }, 40);
+  }
+
+  // =========================================================================
+  //  D3 GRAPH
+  //
+  //  Force-directed graph rendered into #graph-svg. We let the simulation
+  //  settle for ~1500ms then stop it — continuous physics is mesmerising for
+  //  three seconds and exhausting after ten. Dragging a node re-energises
+  //  the simulation briefly so the rest of the graph rebalances, then we
+  //  let it cool again.
+  // =========================================================================
+  let _g = {
+    svg: null, root: null, linkLayer: null, nodeLayer: null, labelLayer: null,
+    sim: null, nodes: [], edges: [], app: null, zoom: null, tooltip: null,
+  };
+
+  function renderGraph(app) {
+    const svg = d3.select('#graph-svg');
+    if (svg.empty()) return;
+    _g.app = app;
+    _g.tooltip = document.getElementById('graph-tooltip');
+
+    const data = app.data;
+    const width  = Math.max(svg.node().clientWidth,  800);
+    const height = Math.max(svg.node().clientHeight, 600);
+    svg.attr('viewBox', [0, 0, width, height]);
+
+    // Clear + rebuild
+    svg.selectAll('*').remove();
+    const root = svg.append('g').attr('class','graph-root');
+    _g.svg = svg; _g.root = root;
+    _g.linkLayer  = root.append('g').attr('class','links');
+    _g.labelLayer = root.append('g').attr('class','clusters');
+    _g.nodeLayer  = root.append('g').attr('class','nodes');
+
+    // Zoom / pan
+    _g.zoom = d3.zoom().scaleExtent([0.4, 2.5])
+      .on('zoom', e => root.attr('transform', e.transform));
+    svg.call(_g.zoom);
+
+    // Anchor each category on a ring around the canvas center. Seed each
+    // node's starting position at (or jittered around) its category anchor so
+    // the simulation converges quickly to a cleanly-clustered layout.
+    const _anchorR = Math.min(svg.node().clientWidth, svg.node().clientHeight) * 0.30;
+    const _cats = data.categories.map(c => c.id);
+    const _catAnchors = {};
+    _cats.forEach((cid, i) => {
+      const a = (i / _cats.length) * Math.PI * 2 - Math.PI / 2;
+      _catAnchors[cid] = {
+        x: (svg.node().clientWidth  || 1200) / 2 + Math.cos(a) * _anchorR,
+        y: (svg.node().clientHeight || 800)  / 2 + Math.sin(a) * _anchorR,
+      };
+    });
+    const nodes = data.nodes.map(n => {
+      const a = _catAnchors[n.category];
+      return { ...n, x: a.x + (Math.random() - 0.5) * 40, y: a.y + (Math.random() - 0.5) * 40 };
+    });
+    const idx = new Map(nodes.map(n => [n.id, n]));
+    const edges = data.edges
+      .map(([a,b,s]) => ({ source: idx.get(a), target: idx.get(b), strength: s||1 }))
+      .filter(l => l.source && l.target);
+    _g.nodes = nodes; _g.edges = edges;
+
+    // Importance 70–100 → radius 10–26 (diameter 20–52). PRD section 3.2.
+    const r = importance => 10 + Math.max(0, (importance - 70)) * (16 / 30);
+    const linkColor = src => app.catColor(src.category);
+
+    // Build edges (curved)
+    const link = _g.linkLayer.selectAll('path').data(edges).join('path')
+      .attr('class','edge')
+      .attr('stroke', d => linkColor(d.source))
+      .attr('stroke-width', 1.2)
+      .attr('stroke-opacity', 0.30);
+
+    // Build nodes
+    const node = _g.nodeLayer.selectAll('g.node').data(nodes, d => d.id).join('g')
+      .attr('class','node')
+      .style('cursor','pointer');
+
+    node.append('circle')
+      .attr('class','node-circle')
+      .attr('r', d => r(d.importance))
+      .attr('fill', d => app.catColor(d.category))
+      .attr('stroke', '#fff').attr('stroke-width', 2)
+      .attr('filter','drop-shadow(0 1px 2px rgba(15,23,42,.15))');
+
+    node.append('text')
+      .attr('class','node-label')
+      .style('opacity', d => d.importance >= 88 ? 1 : 0)
+      .text(d => d.importance);
+
+    // Hover behavior
+    node
+      .on('mouseenter', (event, d) => {
+        if (_g.app.selectedNode) return; // don't fight panel mode
+        highlightNeighborhood(d.id, true);
+        showTooltip(event, d);
+      })
+      .on('mousemove', (event) => moveTooltip(event))
+      .on('mouseleave', () => {
+        if (_g.app.selectedNode) return;
+        clearHighlight();
+        hideTooltip();
+      })
+      .on('click', (event, d) => {
+        event.stopPropagation();
+        _g.app.selectNode(d.id);
+        hideTooltip();
+      });
+
+    // Drag
+    node.call(d3.drag()
+      .on('start', (event, d) => { if (!event.active) _g.sim.alphaTarget(0.25).restart(); d.fx = d.x; d.fy = d.y; })
+      .on('drag',  (event, d) => { d.fx = event.x; d.fy = event.y; })
+      .on('end',   (event, d) => {
+        if (!event.active) _g.sim.alphaTarget(0);
+        d.fx = null; d.fy = null;
+        // Let it settle then stop
+        setTimeout(() => _g.sim.stop(), 600);
+      }));
+
+    // Simulation
+    if (_g.sim) _g.sim.stop();
+    _g.sim = d3.forceSimulation(nodes)
+      .force('link', d3.forceLink(edges).id(d => d.id).distance(d => 70 + (1 - (d.strength || 1)) * 30).strength(0.45))
+      .force('charge', d3.forceManyBody().strength(-320))
+      .force('x', d3.forceX(d => _catAnchors[d.category].x).strength(0.22))
+      .force('y', d3.forceY(d => _catAnchors[d.category].y).strength(0.22))
+      .force('collide', d3.forceCollide(d => r(d.importance) + 8))
+      .on('tick', () => {
+        link.attr('d', d => {
+          const dx = d.target.x - d.source.x;
+          const dy = d.target.y - d.source.y;
+          const dr = Math.sqrt(dx*dx + dy*dy) * 4;
+          return `M${d.source.x},${d.source.y} A${dr},${dr} 0 0,1 ${d.target.x},${d.target.y}`;
+        });
+        node.attr('transform', d => `translate(${d.x},${d.y})`);
+      });
+
+    // Stop after settle window
+    setTimeout(() => {
+      if (_g.sim) _g.sim.stop();
+      renderClusterLabels();
+    }, 1500);
+
+    // Reset zoom transform whenever we render
+    svg.transition().duration(0).call(_g.zoom.transform, d3.zoomIdentity);
+  }
+
+  function renderClusterLabels() {
+    // Pill labels placed above each category cluster's centroid. Computed after
+    // simulation settles so positions are stable.
+    const groups = {};
+    _g.nodes.forEach(n => {
+      const r = 10 + Math.max(0, (n.importance - 70)) * (16 / 30);
+      if (!groups[n.category]) groups[n.category] = { x: 0, y: 0, n: 0, topY: Infinity, topR: 0 };
+      groups[n.category].x += n.x;
+      groups[n.category].y += n.y;
+      groups[n.category].n += 1;
+      if (n.y - r < groups[n.category].topY) {
+        groups[n.category].topY = n.y - r;
+        groups[n.category].topR = r;
+      }
+    });
+    const labels = Object.entries(groups).map(([cat, g]) => ({
+      cat,
+      x: g.x / g.n,
+      y: g.topY - 14,
+      name: _g.app.catName(cat),
+    }));
+
+    _g.labelLayer.selectAll('*').remove();
+    const sel = _g.labelLayer.selectAll('g.cluster').data(labels, d => d.cat)
+      .join('g').attr('class','cluster').style('opacity', 0);
+
+    sel.attr('transform', d => `translate(${d.x},${d.y})`);
+    sel.append('rect').attr('class','cluster-label-bg').attr('rx', 9).attr('ry', 9);
+    sel.append('text').attr('class','cluster-label').attr('text-anchor','middle')
+      .attr('dy', '0.34em').text(d => d.name);
+    // Size the pill to the text
+    sel.each(function() {
+      const g = d3.select(this);
+      const t = g.select('text').node();
+      const bb = t.getBBox();
+      g.select('rect')
+        .attr('x', bb.x - 8).attr('y', bb.y - 4)
+        .attr('width', bb.width + 16).attr('height', bb.height + 8);
+    });
+    sel.transition().duration(400).style('opacity', 1);
+  }
+
+  function highlightNeighborhood(id, viaHover) {
+    const neighborSet = new Set([id]);
+    _g.edges.forEach(e => {
+      if (e.source.id === id) neighborSet.add(e.target.id);
+      else if (e.target.id === id) neighborSet.add(e.source.id);
+    });
+    _g.nodeLayer.selectAll('g.node')
+      .style('opacity', d => neighborSet.has(d.id) ? 1 : 0.18)
+      .select('circle')
+      .attr('stroke-width', d => d.id === id ? 3 : 2)
+      .attr('r', d => {
+        const base = 10 + Math.max(0, (d.importance - 70)) * (16 / 30);
+        return d.id === id ? base * 1.15 : base;
+      })
+      .attr('stroke', d => d.id === id ? _g.app.catColor(d.category) : '#fff');
+    _g.linkLayer.selectAll('path')
+      .attr('stroke-opacity', e => (e.source.id === id || e.target.id === id) ? 0.8 : 0.06)
+      .attr('stroke-width',   e => (e.source.id === id || e.target.id === id) ? 1.8 : 1);
+    _g.labelLayer.selectAll('g.cluster').style('opacity', 0.35);
+  }
+
+  function clearHighlight() {
+    _g.nodeLayer.selectAll('g.node')
+      .style('opacity', 1)
+      .select('circle')
+      .attr('stroke-width', 2)
+      .attr('stroke', '#fff')
+      .attr('r', d => 10 + Math.max(0, (d.importance - 70)) * (16 / 30));
+    _g.linkLayer.selectAll('path')
+      .attr('stroke-opacity', 0.30)
+      .attr('stroke-width', 1.2);
+    _g.labelLayer.selectAll('g.cluster').style('opacity', 1);
+  }
+
+  function updateGraphSelection(app) {
+    if (!_g.svg) return;
+    if (app.selectedNode) highlightNeighborhood(app.selectedNode.id, false);
+    else clearHighlight();
+  }
+
+  function focusGraphNode(id) {
+    if (!_g.svg) return;
+    highlightNeighborhood(id, false);
+  }
+  function clearGraphFocus() {
+    if (!_g.svg) return;
+    clearHighlight();
+  }
+
+  function centerGraphOnNode(id) {
+    if (!_g.svg) return;
+    const n = _g.nodes.find(x => x.id === id);
+    if (!n) return;
+    const width  = _g.svg.node().clientWidth;
+    const height = _g.svg.node().clientHeight;
+    const t = d3.zoomIdentity.translate(width/2 - n.x*1.2, height/2 - n.y*1.2).scale(1.2);
+    _g.svg.transition().duration(550).call(_g.zoom.transform, t);
+  }
+
+  function updateGraphCategoryFilter(app) {
+    if (!_g.svg) return;
+    const cat = app.selectedCategory;
+    if (!cat) { clearHighlight(); return; }
+    _g.nodeLayer.selectAll('g.node')
+      .style('opacity', d => d.category === cat ? 1 : 0.15);
+    _g.linkLayer.selectAll('path')
+      .attr('stroke-opacity', e => (e.source.category === cat || e.target.category === cat) ? 0.5 : 0.05);
+  }
+
+  function updateGraphSearch(app) {
+    if (!_g.svg) return;
+    const q = (app.searchQuery || '').toLowerCase().trim();
+    if (!q) { clearHighlight(); return; }
+    _g.nodeLayer.selectAll('g.node')
+      .style('opacity', d => {
+        const hay = (d.name + ' ' + d.description + ' ' + (d.tags||[]).join(' ')).toLowerCase();
+        return hay.includes(q) ? 1 : 0.12;
+      });
+    _g.linkLayer.selectAll('path').attr('stroke-opacity', 0.08);
+  }
+
+  function showTooltip(event, d) {
+    const t = _g.tooltip; if (!t) return;
+    t.innerHTML = `${escapeHTML(d.name)}<span class="imp">${d.importance}</span>`;
+    t.style.left = event.clientX + 'px';
+    t.style.top  = event.clientY + 'px';
+    t.classList.add('show');
+  }
+  function moveTooltip(event) {
+    const t = _g.tooltip; if (!t) return;
+    t.style.left = event.clientX + 'px';
+    t.style.top  = event.clientY + 'px';
+  }
+  function hideTooltip() { const t = _g.tooltip; if (t) t.classList.remove('show'); }
+  function escapeHTML(s) { return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+  // Bootstrap icons after Alpine initial render
+  document.addEventListener('alpine:initialized', () => queueIcons());
+  document.addEventListener('DOMContentLoaded', () => queueIcons());
+  </script>
+</body>
+</html>
